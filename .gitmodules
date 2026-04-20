@@ -1,0 +1,4 @@
+[submodule "agents-common"]
+	path = agents-common
+	url = https://github.com/CarloWood/agents-common.git
+	branch = master
