@@ -1,0 +1,1 @@
+Ensure Window margin handling validates or clamps impossible margins, handles zero-margin and stdscr-backed windows, recreates or deletes subwindows safely when margins change, and documents the chosen behavior in the API comments.

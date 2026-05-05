@@ -1,0 +1,1 @@
+Design and implement terminal::Margin support for terminal::Window so callers can reserve top, bottom, left, and right regions that Window write operations never touch, using an ncursesw subwindow internally for the writable area.

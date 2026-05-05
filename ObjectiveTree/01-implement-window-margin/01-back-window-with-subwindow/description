@@ -1,0 +1,1 @@
+Update terminal::Window internals so write, move, erase, background, and refresh behavior targets an ncursesw subwindow representing the margin-adjusted writable area while preserving border drawing and parent window lifetime safety.

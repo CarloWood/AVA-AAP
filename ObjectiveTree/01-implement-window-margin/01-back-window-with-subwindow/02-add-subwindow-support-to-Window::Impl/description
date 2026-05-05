@@ -1,0 +1,1 @@
+Add API to Window (backed by a Window::Impl) to make calls to sub-window related ncurses API.

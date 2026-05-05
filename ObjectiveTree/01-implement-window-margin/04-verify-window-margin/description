@@ -1,0 +1,1 @@
+Verify the Margin-enabled Window implementation by building the project and, where practical, adding focused tests or a minimal exerciser that confirms writes through a margined Window do not affect reserved border cells and no-margin behavior remains unchanged.
