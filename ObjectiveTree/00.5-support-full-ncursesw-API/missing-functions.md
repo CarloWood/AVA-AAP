@@ -35,7 +35,10 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| waddnwstr    | research |                   |
+| mvwaddnwstr  | support  | Add convenience overload equivalent to move plus `waddnwstr`; public API can accept `wchar_t const*`. |
+| mvwaddwstr   | support  | Add convenience overload equivalent to move plus `waddwstr`; public API can accept `wchar_t const*`. |
+| waddnwstr    | support  | Add bounded wide-character string output; public API can accept `wchar_t const*`. |
+| waddwstr     | support  | Add wide-character string output; public API can accept `wchar_t const*`. |
 
 ## https://invisible-island.net/ncurses/man/curs_attr.3x.html
 
