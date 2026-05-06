@@ -93,7 +93,8 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| wgetn_wstr   | research |                   |
+| wget_wstr    | exclude  | Line-editing input API that reads until line feed/carriage return; AVA runs in `cbreak(); noecho(); nl();` mode and needs immediate per-key events. |
+| wgetn_wstr   | exclude  | Bounded line-editing input API; AVA needs immediate per-key events via `wget_wch` instead. |
 
 ## https://invisible-island.net/ncurses/man/curs_getch.3x.html
 
