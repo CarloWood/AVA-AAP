@@ -140,9 +140,9 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| nodelay      | research |                   |
-| notimeout    | research |                   |
-| wtimeout     | research |                   |
+| nodelay      | exclude  | Input timing defaults are set centrally in `Window::Impl::default_initialization`; `wtimeout` is the more general equivalent. |
+| notimeout    | exclude  | Escape-sequence timeout policy is set centrally in `Window::Impl::default_initialization`. |
+| wtimeout     | exclude  | Input timeout policy is set centrally in `Window::Impl::default_initialization`. |
 
 ## https://invisible-island.net/ncurses/man/curs_ins_wch.3x.html
 
