@@ -44,10 +44,15 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| wattr_off    | research |                   |
-| wattr_on     | research |                   |
-| wchgat       | research |                   |
-| wcolor_set   | research |                   |
+| mvwchgat     | support  | Has a `WINDOW *win` argument and uses `attr_t`/color pair parameters rather than legacy `int attrs`. |
+| wattr_get    | support  | Has a `WINDOW *win` argument and uses `attr_t`/color pair output parameters rather than legacy `int attrs`. |
+| wattr_off    | support  | Has a `WINDOW *win` argument and uses `attr_t` rather than legacy `int attrs`. |
+| wattr_on     | support  | Has a `WINDOW *win` argument and uses `attr_t` rather than legacy `int attrs`. |
+| wattr_set    | support  | Has a `WINDOW *win` argument and uses `attr_t`/color pair parameters rather than legacy `int attrs`. |
+| wchgat       | support  | Has a `WINDOW *win` argument and uses `attr_t`/color pair parameters rather than legacy `int attrs`. |
+| wcolor_set   | support  | Has a `WINDOW *win` argument and uses a color pair parameter rather than legacy `int attrs`. |
+| wstandend    | support  | Has a `WINDOW *win` argument and no legacy `int attrs` parameter. |
+| wstandout    | support  | Has a `WINDOW *win` argument and no legacy `int attrs` parameter. |
 
 ## https://invisible-island.net/ncurses/man/curs_bkgd.3x.html
 
