@@ -148,7 +148,8 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| wins_wch     | research |                   |
+| mvwins_wch   | support  | Add convenience overload equivalent to move plus `wins_wch`; public API uses `ComplexChar` rather than `cchar_t`. |
+| wins_wch     | support  | Insert a complex character before this Window's cursor; public API uses `ComplexChar` rather than `cchar_t`. |
 
 ## https://invisible-island.net/ncurses/man/curs_ins_wstr.3x.html
 
