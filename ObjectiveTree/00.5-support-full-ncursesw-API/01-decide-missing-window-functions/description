@@ -1,0 +1,1 @@
+Classify each remaining potentially relevant ncursesw WINDOW* function as supported, intentionally excluded, or needing a Window API addition, and record the rationale in the missing-functions decision file before implementation proceeds.

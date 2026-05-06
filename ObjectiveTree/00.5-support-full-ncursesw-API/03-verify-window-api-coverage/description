@@ -1,0 +1,1 @@
+Verify the expanded terminal::Window ncursesw API by building the project and running focused TUI tests, and confirm the missing-functions decision file has no undecided supported candidates.

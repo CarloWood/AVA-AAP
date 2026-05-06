@@ -1,0 +1,1 @@
+Finish terminal::Window and terminal::Window::Impl as the ncursesw WINDOW* abstraction by identifying and adding support for every useful ncursesw function that operates on a WINDOW*, while recording explicit include/exclude decisions for remaining candidates.
