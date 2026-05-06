@@ -80,7 +80,7 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| winsdelln    | research |                   |
+| winsdelln    | support  | General insert/delete line primitive; `winsertln` and `wdeleteln` are trivial wrappers around it. |
 
 ## https://invisible-island.net/ncurses/man/curs_get_wch.3x.html
 
