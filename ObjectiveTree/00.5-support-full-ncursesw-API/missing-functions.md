@@ -100,13 +100,13 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| wgetch       | research |                   |
+| wgetch       | exclude  | Non-wide input API; use `wget_wch` for immediate wide-character/key events. |
 
 ## https://invisible-island.net/ncurses/man/curs_getstr.3x.html
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| wgetnstr     | research |                   |
+| wgetnstr     | exclude  | Non-wide line-editing input API; AVA needs immediate wide-character/key events via `wget_wch`. |
 
 ## https://invisible-island.net/ncurses/man/curs_in_wch.3x.html
 
