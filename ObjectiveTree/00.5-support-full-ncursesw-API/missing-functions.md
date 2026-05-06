@@ -16,7 +16,7 @@ Decision values:
 | mvwadd_wchstr| support  | Add convenience overload equivalent to move plus `wadd_wchstr`; public API uses `ComplexChar` rather than `cchar_t`. |
 | mvwadd_wchnstr| support | Add convenience overload equivalent to move plus `wadd_wchnstr`; public API uses `ComplexChar` rather than `cchar_t`. |
 | wadd_wchnstr | support  | Add bounded complex-character string output; public API uses `ComplexChar` rather than `cchar_t`. |
-| wadd_wchstr  | covered  | Already represented by existing complex-character string output support; public API uses `ComplexChar` rather than `cchar_t`. |
+| wadd_wchstr  | support  | Add complex-character string output to the public `Window` API; implementation support exists only inside `Window::Impl` today. |
 
 ## https://invisible-island.net/ncurses/man/curs_addch.3x.html
 
