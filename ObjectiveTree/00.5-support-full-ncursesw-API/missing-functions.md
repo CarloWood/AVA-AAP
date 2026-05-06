@@ -119,7 +119,10 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| win_wchnstr  | research |                   |
+| mvwin_wchnstr| support  | Add convenience overload equivalent to move plus `win_wchnstr`; useful for tests that inspect rendered TUI output. |
+| mvwin_wchstr | support  | Add convenience overload equivalent to move plus `win_wchstr`; useful for tests that inspect rendered TUI output. |
+| win_wchnstr  | support  | Read a bounded complex-character string from this Window; useful for tests that inspect rendered TUI output. |
+| win_wchstr   | support  | Read a complex-character string from this Window; useful for tests that inspect rendered TUI output. |
 
 ## https://invisible-island.net/ncurses/man/curs_inch.3x.html
 
