@@ -13,7 +13,10 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| wadd_wchnstr | research |                   |
+| mvwadd_wchstr| support  | Add convenience overload equivalent to move plus `wadd_wchstr`; public API uses `ComplexChar` rather than `cchar_t`. |
+| mvwadd_wchnstr| support | Add convenience overload equivalent to move plus `wadd_wchnstr`; public API uses `ComplexChar` rather than `cchar_t`. |
+| wadd_wchnstr | support  | Add bounded complex-character string output; public API uses `ComplexChar` rather than `cchar_t`. |
+| wadd_wchstr  | covered  | Already represented by existing complex-character string output support; public API uses `ComplexChar` rather than `cchar_t`. |
 
 ## https://invisible-island.net/ncurses/man/curs_addch.3x.html
 
