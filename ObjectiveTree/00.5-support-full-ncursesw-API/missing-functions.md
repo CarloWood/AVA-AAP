@@ -112,7 +112,8 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| win_wch      | research |                   |
+| mvwin_wch    | support  | Add convenience overload equivalent to move plus `win_wch`; useful for tests that inspect rendered TUI output. |
+| win_wch      | support  | Read the complex character at this Window's cursor; useful for tests that inspect rendered TUI output. |
 
 ## https://invisible-island.net/ncurses/man/curs_in_wchstr.3x.html
 
