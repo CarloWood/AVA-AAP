@@ -22,14 +22,14 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| waddch       | research |                   |
-| wechochar    | research |                   |
+| waddch       | exclude  | Uses the older `chtype` interface; prefer wide-character/`ComplexChar` APIs. |
+| wechochar    | exclude  | Uses the older `chtype` interface; prefer wide-character/`ComplexChar` APIs. |
 
 ## https://invisible-island.net/ncurses/man/curs_addchstr.3x.html
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| waddchnstr   | research |                   |
+| waddchnstr   | exclude  | Uses the older `chtype` string interface; prefer wide-character/`ComplexChar` APIs. |
 
 ## https://invisible-island.net/ncurses/man/curs_addwstr.3x.html
 
@@ -50,16 +50,16 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| wbkgd        | research |                   |
-| wbkgdset     | research |                   |
+| wbkgd        | exclude  | Uses the older `chtype` background interface; use wide-character background APIs instead. |
+| wbkgdset     | exclude  | Uses the older `chtype` background interface; use wide-character background APIs instead. |
 
 ## https://invisible-island.net/ncurses/man/curs_border.3x.html
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| wborder      | research |                   |
-| whline       | research |                   |
-| wvline       | research |                   |
+| wborder      | exclude  | Uses the older `chtype` border interface; use wide-character border APIs instead. |
+| whline       | exclude  | Uses the older `chtype` line-drawing interface; use wide-character line APIs instead. |
+| wvline       | exclude  | Uses the older `chtype` line-drawing interface; use wide-character line APIs instead. |
 
 ## https://invisible-island.net/ncurses/man/curs_delch.3x.html
 
@@ -113,13 +113,13 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| winch        | research |                   |
+| winch        | exclude  | Returns the older `chtype` representation; prefer wide-character/`ComplexChar` APIs. |
 
 ## https://invisible-island.net/ncurses/man/curs_inchstr.3x.html
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| winchnstr    | research |                   |
+| winchnstr    | exclude  | Uses the older `chtype` string interface; prefer wide-character/`ComplexChar` APIs. |
 
 ## https://invisible-island.net/ncurses/man/curs_inopts.3x.html
 
@@ -145,7 +145,7 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| winsch       | research |                   |
+| winsch       | exclude  | Uses the older `chtype` insertion interface; prefer wide-character/`ComplexChar` APIs. |
 
 ## https://invisible-island.net/ncurses/man/curs_insstr.3x.html
 
@@ -182,7 +182,7 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| pechochar    | research |                   |
+| pechochar    | exclude  | Uses the older `chtype` pad echo interface; prefer wide-character/`ComplexChar` APIs. |
 | pecho_wchar  | research |                   |
 | pnoutrefresh | research |                   |
 | prefresh     | research |                   |
