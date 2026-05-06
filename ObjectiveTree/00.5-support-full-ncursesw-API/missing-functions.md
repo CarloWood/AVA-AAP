@@ -73,7 +73,8 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| wdelch       | research |                   |
+| mvwdelch     | support  | Add convenience overload equivalent to move plus `wdelch`. |
+| wdelch       | support  | Delete the character at this Window's cursor position. |
 
 ## https://invisible-island.net/ncurses/man/curs_deleteln.3x.html
 
