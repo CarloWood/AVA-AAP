@@ -86,7 +86,8 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| wget_wch     | research |                   |
+| unget_wch    | support  | Push a wide character back onto the input queue; complements `wget_wch`. |
+| wget_wch     | support  | Read a wide character/key from this Window; omit `mvwget_wch` because callers can explicitly `move` first. |
 
 ## https://invisible-island.net/ncurses/man/curs_get_wstr.3x.html
 
