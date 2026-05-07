@@ -238,27 +238,31 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| vw_scanw     | research |                   |
-| vwscanw      | research |                   |
-| wscanw       | research |                   |
+| vw_scanw     | exclude  | Do not expose scanf-style input parsing APIs; AVA input should stay explicit and event/key based. |
+| vwscanw      | exclude  | Obsolete scanf-style input parsing API; no scan-function support. |
+| wscanw       | exclude  | Do not expose scanf-style input parsing APIs; AVA input should stay explicit and event/key based. |
 
 ## https://invisible-island.net/ncurses/man/curs_scroll.3x.html
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| wscrl        | research |                   |
+| scroll       | exclude  | Trivial one-line wrapper; callers can use `wscrl` with `1` or `-1` as needed. |
+| wscrl        | support  | Scroll this Window up or down by an explicit line count. |
 
 ## https://invisible-island.net/ncurses/man/curs_touch.3x.html
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| wtouchln     | research |                   |
+| wtouchln     | exclude  | Do not expose manual touched-line manipulation yet; rely on ncurses to mark changes correctly until a concrete need appears. |
 
 ## https://invisible-island.net/ncurses/man/curs_util.3x.html
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| putwin       | research |                   |
+| flushinp     | exclude  | Global input-queue discard operation; not a `Window` API. |
+| getwin       | exclude  | Serialized raw `WINDOW` restore exposes ncurses persistence details and creates a top-level window/pad. |
+| key_name     | support  | Convert a wide character to a printable key/name string without exposing ncurses directly. |
+| putwin       | exclude  | Serialized raw `WINDOW` persistence exposes ncurses internals and is not portable/stable enough for `Window`. |
 
 ## https://invisible-island.net/ncurses/man/curs_window.3x.html
 
