@@ -155,7 +155,10 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| wins_nwstr   | research |                   |
+| mvwins_nwstr | support  | Add convenience overload equivalent to move plus `wins_nwstr`; public API uses `wchar_t const*`. |
+| mvwins_wstr  | support  | Add convenience overload equivalent to move plus `wins_wstr`; public API uses `wchar_t const*`. |
+| wins_nwstr   | support  | Insert at most `n` wide characters before this Window's cursor; public API uses `wchar_t const*`. |
+| wins_wstr    | support  | Insert a null-terminated wide-character string before this Window's cursor; public API uses `wchar_t const*`. |
 
 ## https://invisible-island.net/ncurses/man/curs_insch.3x.html
 
