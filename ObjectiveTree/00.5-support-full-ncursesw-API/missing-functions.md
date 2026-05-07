@@ -218,19 +218,21 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
+| newpad       | support  | Create a pad-backed `Window` for scrollable/off-screen content larger than the visible screen. |
 | pechochar    | exclude  | Uses the older `chtype` pad echo interface; prefer wide-character/`ComplexChar` APIs. |
-| pecho_wchar  | research |                   |
-| pnoutrefresh | research |                   |
-| prefresh     | research |                   |
-| subpad       | research |                   |
+| pecho_wchar  | support  | Echo a `ComplexChar` to a pad and refresh the visible pad region without exposing `cchar_t`. |
+| pnoutrefresh | support  | Stage a pad refresh for a selected pad rectangle and screen rectangle, analogous to `wnoutrefresh`. |
+| prefresh     | support  | Refresh a selected pad rectangle into a selected screen rectangle. |
+| subpad       | support  | Create a child pad relative to its parent pad, analogous to subwindow support. |
 
 ## https://invisible-island.net/ncurses/man/curs_printw.3x.html
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| vw_printw    | research |                   |
-| vwprintw     | research |                   |
-| wprintw      | research |                   |
+| mvwprintw    | support  | Implement existing public `Window::mvprintw` signature as move plus formatted output on this Window. |
+| vw_printw    | support  | Implement existing public `Window::vprintw` signature using the non-obsolete ncurses varargs API. |
+| vwprintw     | exclude  | Obsolete varargs spelling; use `vw_printw` for the public `Window::vprintw` implementation. |
+| wprintw      | support  | Implement existing public `Window::printw` signature for formatted output on this Window. |
 
 ## https://invisible-island.net/ncurses/man/curs_scanw.3x.html
 
