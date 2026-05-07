@@ -170,7 +170,10 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| winsnstr     | research |                   |
+| mvwinsnstr   | support  | Add convenience overload equivalent to move plus `winsnstr`, matching the existing `mvwaddnstr` coverage. |
+| mvwinsstr    | support  | Add convenience overload equivalent to move plus `winsstr`, matching the existing `mvwaddstr` coverage. |
+| winsnstr     | support  | Insert at most `n` narrow/UTF-8 characters before this Window's cursor, matching the existing `waddnstr` coverage. |
+| winsstr      | support  | Insert a null-terminated narrow/UTF-8 string before this Window's cursor, matching the existing `waddstr` coverage. |
 
 ## https://invisible-island.net/ncurses/man/curs_instr.3x.html
 
