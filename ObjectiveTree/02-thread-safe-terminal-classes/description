@@ -1,0 +1,1 @@
+Add support for proper thread-safe usage of the terminal classes, using the ncurses threading scope documentation at https://invisible-island.net/ncurses/man/curs_threads.3x.html to define safe locking responsibilities for global, screen, and window operations.
