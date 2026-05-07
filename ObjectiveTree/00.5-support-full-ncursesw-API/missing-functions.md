@@ -194,7 +194,18 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| ripoffline   | research |                   |
+| curs_set     | support  | Terminal cursor visibility is useful UI state to expose without requiring raw ncurses access. |
+| def_prog_mode| exclude  | Low-level terminal mode snapshot API; ncurses/session lifecycle should manage this internally. |
+| def_shell_mode| exclude | Low-level terminal mode snapshot API; ncurses/session lifecycle should manage this internally. |
+| getsyx       | exclude  | Low-level virtual-screen cursor API; not a `Window` operation. |
+| mvcur        | exclude  | Low-level physical cursor movement API; `Window` drawing/refresh should manage cursor placement. |
+| napms        | exclude  | General sleep helper, not a `Window` operation. |
+| reset_prog_mode| exclude| Low-level terminal mode restore API; ncurses/session lifecycle should manage this internally. |
+| reset_shell_mode| exclude| Low-level terminal mode restore API; ncurses/session lifecycle should manage this internally. |
+| resetty      | exclude  | Low-level terminal mode restore API; ncurses/session lifecycle should manage this internally. |
+| ripoffline   | exclude  | Startup-time screen-line reservation hook with raw `WINDOW*` callback; not appropriate for `terminal::Window`. |
+| savetty      | exclude  | Low-level terminal mode snapshot API; ncurses/session lifecycle should manage this internally. |
+| setsyx       | exclude  | Low-level virtual-screen cursor API; not a `Window` operation. |
 
 ## https://invisible-island.net/ncurses/man/curs_overlay.3x.html
 
