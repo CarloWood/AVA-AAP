@@ -179,13 +179,16 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| winnstr      | research |                   |
+| winnstr      | exclude  | Narrow string extraction is less useful for screen selection/copy; prefer wide-character extraction via `winwstr`/`winnwstr`. |
 
 ## https://invisible-island.net/ncurses/man/curs_inwstr.3x.html
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| winnwstr     | research |                   |
+| mvwinnwstr   | support  | Add convenience overload equivalent to move plus `winnwstr`; useful for select-and-copy from the screen. |
+| mvwinwstr    | support  | Add convenience overload equivalent to move plus `winwstr`; useful for select-and-copy from the screen. |
+| winnwstr     | support  | Extract at most `n` wide characters from this Window; useful for select-and-copy from the screen. |
+| winwstr      | support  | Extract a wide-character string from this Window; useful for select-and-copy from the screen. |
 
 ## https://invisible-island.net/ncurses/man/curs_kernel.3x.html
 
