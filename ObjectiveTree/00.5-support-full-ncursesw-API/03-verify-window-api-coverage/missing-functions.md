@@ -37,18 +37,3 @@ Functions are grouped by their invisible-island ncurses man page URL. Every func
 | wgetdelay | Const query returning this Window's input delay timeout as set by `wtimeout`. |
 | wgetparent | Const query returning this Window's parent as a `Window` wrapper or an explicit no-parent result without exposing `WINDOW*`. |
 | wgetscrreg | Const query returning this Window's scrolling region top and bottom rows. |
-
-## https://invisible-island.net/ncurses/man/curs_trace.3x.html
-
-| Function  | Rationale / Notes |
-|-----------|-------------------|
-
-## https://invisible-island.net/ncurses/man/curs_variables.3x.html
-
-| Function  | Rationale / Notes |
-|-----------|-------------------|
-
-## https://invisible-island.net/ncurses/man/curs_sp_funcs.3x.html
-
-| Function  | Rationale / Notes |
-|-----------|-------------------|
