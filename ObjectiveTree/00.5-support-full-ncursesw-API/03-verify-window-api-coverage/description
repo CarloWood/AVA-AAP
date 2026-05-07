@@ -1,1 +1,1 @@
-Verify the expanded terminal::Window ncursesw API by building the project and running focused TUI tests, and confirm the missing-functions decision file has no undecided supported candidates.
+Confirm the missing-functions decision file has no undecided candidates and that every function marked `support` is represented in the expanded terminal::Window implementation scope.

@@ -1,0 +1,1 @@
+Verify the expanded terminal::Window ncursesw API by building the project and running focused TUI tests, confirming the implemented wrappers compile and behave correctly.
