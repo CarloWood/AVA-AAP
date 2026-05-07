@@ -259,6 +259,7 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
+| delay_output | exclude  | Historical terminal padding/delay helper; modern terminals should not need NUL-byte padding pauses. |
 | flushinp     | exclude  | Global input-queue discard operation; not a `Window` API. |
 | getwin       | exclude  | Serialized raw `WINDOW` restore exposes ncurses persistence details and creates a top-level window/pad. |
 | key_name     | support  | Convert a wide character to a printable key/name string without exposing ncurses directly. |
@@ -268,5 +269,5 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| wcursyncup   | research |                   |
-| wsyncdown    | research |                   |
+| wcursyncup   | support  | Synchronize this Window's cursor position up through ancestor windows. |
+| wsyncdown    | exclude  | Do not expose downward touched-state propagation yet; rely on ncurses marking unless a concrete need appears. |
