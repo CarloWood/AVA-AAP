@@ -211,8 +211,8 @@ Decision values:
 
 | Function     | Decision | Rationale / Notes |
 |--------------|----------|-------------------|
-| overlay      | research |                   |
-| overwrite    | research |                   |
+| overlay      | exclude  | Window-to-window compositing that mutates the destination contents; temporary overlays should be modeled without destroying underlying window state. |
+| overwrite    | exclude  | Window-to-window compositing that mutates the destination contents, including blanks; not needed for temporary UI such as toasts. |
 
 ## https://invisible-island.net/ncurses/man/curs_pad.3x.html
 
