@@ -1,1 +1,1 @@
-Add a terminal::Margin value type and Window API that clearly express reserved top, bottom, left, and right cell counts, including construction/accessors and a way to apply or clear the margin on an existing Window without changing existing no-margin callers.
+Add a terminal::Margin value type and Window API that clearly express reserved top, bottom, left, and right cell counts, including construction and accessors without changing existing no-margin callers.
