@@ -1,0 +1,3 @@
+Provide CMake rules and generator scripts that scan src/ava/*.h/*.cpp and automatically produce source files providing a printable (debug/dump) representation for every struct and class declared under src/ava/, so that any such type can be serialized to an output stream without hand-writing a printer per type.
+
+The printer sources are regenerated on demand via manual pseudo-targets, so a normal build pays no generation cost; the build only auto-generates them when they are absent, so a fresh checkout compiles and links out of the box. The JSON-based generation pipeline is deliberately separate from the Vi-format editor tags file, which the build system does not manage.

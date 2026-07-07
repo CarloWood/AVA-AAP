@@ -1,0 +1,1 @@
+Provide a script under cmake/scripts/ (e.g. cmake/scripts/list_ava_sources.sh) that enumerates and prints, one per line, every relevant source file under src/ava, namely all .h and .cpp files belonging to the ava library, excluding generated files and third-party/vendored headers. The printed list is meant to be consumed by other build steps such as piping into ctags.

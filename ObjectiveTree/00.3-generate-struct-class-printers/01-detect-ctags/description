@@ -1,0 +1,1 @@
+Detect at configure time, in the root CMakeLists.txt, whether a usable `ctags` executable (Exuberant or Universal Ctags) is available on the system, and expose that fact as a CMake variable/feature flag (e.g. CMAKE_CTAGS_FOUND) so that downstream targets that depend on ctags can be conditionally enabled and the build does not fail when ctags is absent.
