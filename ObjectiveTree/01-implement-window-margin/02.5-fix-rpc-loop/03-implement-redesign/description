@@ -1,0 +1,1 @@
+Implement the redesign using `threadsafe`-wrapped types whose access objects (`::wat`, `::rat`, and `::crat`) are passed to functions and lambdas so that proper locking is maintained and the internal state of the state machine is kept consistent by compile-time guarantee rather than by convention.

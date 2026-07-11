@@ -1,0 +1,1 @@
+Several races have popped up and fixing one causes another to appear. This code is NOT robust and needs a redesign. Redesign and rewrite `src/ava/app/rpc_mode.{h,cpp}`.

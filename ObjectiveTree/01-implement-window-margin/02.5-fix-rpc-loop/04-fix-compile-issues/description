@@ -1,0 +1,1 @@
+Resolve any compilation issues that arise from the rewrite so that the project builds cleanly under the existing build configuration (including `-Werror`).

@@ -1,0 +1,1 @@
+Verify that all existing tests pass, including a single-core (`taskset -c 0`) and multi-core stress run of the `app_rpc_resolver` test suite. A design that enforces correctness at compile time should make failures here impossible; the stress test is confirmation, not a crutch.
