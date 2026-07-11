@@ -17,22 +17,20 @@ Two kinds of output records exist:
 | **event**       | `{"event_id":…,"name":…,"request_id":…,"correlation_id":…,"payload_type":…,"payload":{…}}` |
 
 A successful response carries an optional `result` field; a failed
-response carries an `error` object.  Events are emitted asynchronously
-during a prompt run; the terminal **response** for a request id signals
-completion.
+response carries an `error` object.  Every response is terminal — it
+signals completion of the request with that `id`.  Events may be
+emitted before the response (during a prompt run or as a side effect of
+a synchronous command).
 
 ## 2. Participants (Threads)
 
 | Thread            | Role                                                                 |
 |-------------------|----------------------------------------------------------------------|
-| **Main loop**     | The RPC command dispatch loop. Reads input-stream lines, parses commands, dispatches them, and writes responses for synchronous commands. When it receives a `prompt` command it spawns the prompt worker thread. |
+| **Main loop**     | The RPC command dispatch loop. Reads input-stream lines, parses commands, dispatches them, and writes events and responses for synchronous commands. When it receives a `prompt` command it spawns the prompt worker thread. |
 | **Prompt worker** | A `std::jthread` spawned by the main loop for `prompt` and `invoke_command`-with-prompt. Calls `run_prompt()` (the AI agent loop — provider requests, tool calls, streaming deltas), handles follow-up chaining, and writes events plus the terminal response for the prompt. |
 
-Both threads write to the output stream: the main loop writes
-responses for synchronous commands (e.g. `get_state`, `cancel`,
-`compact`); the worker writes events and the terminal success/error
-response for the prompt request.  Output writes are serialized by
-`RpcOutput::mutex`.
+Both threads write both events and responses to the output stream.
+Output writes are serialized by `RpcOutput::mutex`.
 
 The main loop is single-threaded: while it is blocked inside a
 synchronous command (e.g. `compact`, `context`, `export`), no further
