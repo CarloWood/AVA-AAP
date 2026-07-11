@@ -2,10 +2,14 @@
 
 ## 1. Protocol Overview
 
-The RPC mode is a line-oriented JSONL protocol. The client sends one
-JSON object per line on stdin; the server writes one JSON object per
-line on stdout.  Every client request has a unique `id`; every response
-echoes that `id`.  Two kinds of output records exist:
+The RPC mode is a line-oriented JSONL protocol over a pair of
+`std::istream&`/`std::ostream&` references (in production these are
+`std::cin`/`std::cout`; in tests they are backed by custom
+`streambuf` types such as `BlockingInputBuf` and `ThreadSafeStringBuf`).
+The client sends one JSON object per line on the input stream; the
+server writes one JSON object per line on the output stream.  Every
+client request has a unique `id`; every response echoes that `id`.
+Two kinds of output records exist:
 
 | Record kind     | Shape                                                    |
 |-----------------|----------------------------------------------------------|
@@ -21,7 +25,7 @@ completion.
 
 | Thread            | Role                                                                 |
 |-------------------|----------------------------------------------------------------------|
-| **Main loop**     | Reads stdin lines, parses commands, dispatches, writes responses.   |
+| **Main loop**     | Reads input-stream lines, parses commands, dispatches, writes responses. |
 | **Prompt worker** | Created for `prompt` and `invoke_command`-with-prompt. Runs the agent loop (`run_prompt`), handles follow-up chaining, writes events and the terminal response. |
 
 The main loop is single-threaded: while it is blocked inside a
