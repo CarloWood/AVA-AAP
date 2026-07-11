@@ -5,16 +5,17 @@
 The RPC mode is a line-oriented JSONL protocol. The client sends one
 JSON object per line on stdin; the server writes one JSON object per
 line on stdout.  Every client request has a unique `id`; every response
-echoes that `id`.  Three kinds of output records exist:
+echoes that `id`.  Two kinds of output records exist:
 
 | Record kind     | Shape                                                    |
 |-----------------|----------------------------------------------------------|
 | **response**    | `{"id":…,"type":"response","success":true/false,…}`     |
 | **event**       | `{"event_id":…,"name":…,"request_id":…,"correlation_id":…,"payload_type":…,"payload":{…}}` |
-| **error**       | `{"id":…,"type":"response","success":false,"error":{…}}` |
 
-Events are emitted asynchronously during a prompt run; the terminal
-**response** for a request id signals completion.
+A successful response carries an optional `result` field; a failed
+response carries an `error` object.  Events are emitted asynchronously
+during a prompt run; the terminal **response** for a request id signals
+completion.
 
 ## 2. Participants (Threads)
 
