@@ -5,11 +5,12 @@
 The RPC mode is a line-oriented JSONL protocol over a pair of
 `std::istream&`/`std::ostream&` references (in production these are
 `std::cin`/`std::cout`; in tests they are backed by custom
-`streambuf` types such as `BlockingInputBuf` and `ThreadSafeStringBuf`).
-The client sends one JSON object per line on the input stream; the
-server writes one JSON object per line on the output stream.  Every
-client request has a unique `id`; every response echoes that `id`.
-Two kinds of output records exist:
+`streambuf` types). The client sends one JSON object per line on the
+input stream; the server writes one JSON object per line on the output
+stream.
+
+Every client request carries a unique `id`. Two kinds of output
+records exist:
 
 | Record kind     | Shape                                                    |
 |-----------------|----------------------------------------------------------|
@@ -17,592 +18,474 @@ Two kinds of output records exist:
 | **event**       | `{"event_id":…,"name":…,"request_id":…,"correlation_id":…,"payload_type":…,"payload":{…}}` |
 
 A successful response carries an optional `result` field; a failed
-response carries an `error` object.  Every response is terminal — it
-signals completion of the request with that `id`.  Events may be
-emitted before the response (during a prompt run or as a side effect of
-a synchronous command).
+response carries an `error` object. Every response is terminal — it
+signals completion of the request with that `id`. Events may be
+emitted before the response.
 
-## 2. Participants (Threads)
+## 2. Client-Side State Machine
 
-| Thread            | Role                                                                 |
-|-------------------|----------------------------------------------------------------------|
-| **Main loop**     | The RPC command dispatch loop. Reads input-stream lines, parses commands, dispatches them. When it receives a `prompt` command it spawns the prompt worker thread. |
-| **Prompt worker** | A `std::jthread` spawned by the main loop for `prompt` and `invoke_command`-with-prompt. Calls `run_prompt()` (the AI agent loop — provider requests, tool calls, streaming deltas), handles follow-up chaining, and writes events plus the terminal response for the prompt. |
+The client's state is determined by which commands it has sent and
+which terminal responses it has received. The central question is
+whether a prompt is **pending** — sent but not yet completed by a
+terminal response.
 
-While the prompt worker is running, the main loop continues reading
-and processing input lines.  It does **not** merely queue everything:
-
-- `steer` and `follow_up` are **queued** (they require `active_run = true` and are consumed by the worker).
-- All other commands are **processed immediately** by the main loop — `cancel`, `permission_reply`, `question_reply`, `get_state`, `permission_grants`, `permission_rule_add`, etc. each produce their own events and responses written right away.
-
-This means the main loop and the worker both write to the output
-stream concurrently.  Output writes are serialized by
-`RpcOutput::mutex` to prevent interleaved or corrupted output records.
-
-The main loop is single-threaded: while it is blocked inside a
-synchronous command (e.g. `compact`, `context`, `export`), no further
-input lines are read.
-
-The prompt worker runs concurrently with the main loop.  Both threads
-share three mutable state objects, each with its own mutex:
-
-| State object            | Protects                                                |
-|-------------------------|---------------------------------------------------------|
-| `RpcRunState`           | `active_run`, `cancel_requested`, `input_closed`, `active_request_id`, steering/follow-up queues, async error |
-| `PendingResolverState`  | Pending permission requests, pending question requests, session grants, condition variable |
-| `RuntimeSession`        | Session store, model, reasoning, paths, workspace, etc. (protected by `session_mutex`) |
-
-Output writes are serialized by `RpcOutput::mutex`.
-
-## 3. Externally Visible States
-
-The state machine is defined by three boolean flags that the client
-can observe (directly or indirectly):
-
-| Flag                | Where observable                                         |
-|---------------------|----------------------------------------------------------|
-| `active_run`        | Indirectly: steer/follow_up acceptance, mutation rejection |
-| `cancel_requested`  | `get_state` response field `"cancel_requested"`          |
-| `input_closed`      | Terminal: loop exits, no further output                  |
-
-These combine into the following states:
+### States
 
 ```
-                        ┌──────────┐
-                   ┌────│  IDLE    │◄─────────────────────────┐
-                   │    │active=F │                           │
-                   │    │cancel=F │                           │
-                   │    │closed=F │                           │
-                   │    └────┬─────┘                           │
-                   │         │                                 │
-            prompt │         │ compact                         │ reset_cancel
-            invoke  │         │                                 │ (session switch)
-                   │    ┌────▼─────────┐    ┌──────────────┐    │
-                   │    │PROMPT_ACTIVE │    │COMPACT_ACTIVE│    │
-                   │    │active=T      │    │active=T      │    │
-                   │    │cancel=F      │    │cancel=F      │    │
-                   │    │closed=F      │    │closed=F      │    │
-                   │    └────┬─────────┘    └──────┬───────┘    │
-                   │         │ cancel              │ done       │
-                   │    ┌────▼──────────┐    ┌─────▼──────┐     │
-                   │    │PROMPT_CANCEL  │    │  IDLE      │─────┘
-                   │    │active=T       │    │(or CANCEL  │
-                   │    │cancel=T       │    │ _LATCHED)  │
-                   │    │closed=F       │    └────────────┘
-                   │    └────┬──────────┘
-                   │         │ worker finishes
-                   │    ┌────▼──────────┐
-                   │    │CANCEL_LATCHED │
-                   │    │active=F       │
-                   │    │cancel=T       │
-                   │    │closed=F       │
-                   │    └────┬──────────┘
-                   │         │ prompt / compact / session-switch
-                   │         │ (clears cancel flag)
-                   │    ┌────▼─────┐
-                   └───►│  IDLE    │
-                        └──────────┘
+                          ┌──────────────────────────────┐
+                          │           IDLE               │
+                          │ No pending prompt.            │
+                          │ All commands accepted.        │
+                          │ steer/follow_up rejected.     │
+                          └──────┬───────────────────────┘
+                                 │ send prompt / invoke_command
+                                 │ (with prompt_message)
+                          ┌──────▼───────────────────────┐
+                          │       PROMPT_PENDING          │
+                          │ Prompt sent, terminal         │
+                          │ response not yet received.    │
+                          │                               │
+                          │  steer / follow_up : accepted │
+                          │  cancel              : accepted │
+                          │  permission_reply    : accepted │
+                          │  question_reply      : accepted │
+                          │  read-only queries   : accepted │
+                          │  prompt / mutations  : rejected │
+                          │  compact             : rejected │
+                          └──┬──────────┬──────────┬──────┘
+                             │          │          │
+              send cancel    │          │ recv     │ recv
+              (→ CANCELING)  │          │ terminal │ terminal
+                             │          │ response │ response
+                             │          │ (success)│ (error)
+                             │          │          │
+                    ┌────────▼───┐  ┌───▼────┐  ┌─▼────────┐
+                    │ CANCELING  │  │ IDLE   │  │ IDLE     │
+                    │ cancel     │  │       │  │          │
+                    │ sent;      │  └───────┘  └──────────┘
+                    │ waiting for│
+                    │ terminal   │
+                    │ response   │
+                    │            │
+                    │ steer/     │
+                    │ follow_up  │
+                    │ rejected   │
+                    └───────┬────┘
+                            │ recv terminal response
+                            │ (canceled error)
+                    ┌───────▼────┐
+                    │ IDLE        │
+                    └─────────────┘
 
-  Any state ──► SHUTTING_DOWN (input_closed=T) ──► exit
+  IDLE ──send compact──► COMPACT_PENDING ──recv response──► IDLE
+                           (no other commands
+                            processed until response)
 ```
 
 ### State Definitions
 
-| State              | active_run | cancel_requested | input_closed | Description                                                       |
-|--------------------|------------|------------------|---------------|-------------------------------------------------------------------|
-| **IDLE**           | false      | false            | false         | No prompt running. All commands accepted.                         |
-| **PROMPT_ACTIVE**  | true       | false            | false         | A prompt (or invoke_command-with-prompt) is running on the worker. Queuing, cancellation, and resolver replies are accepted. Session mutations and new prompts are rejected. |
-| **PROMPT_CANCEL**  | true       | true             | false         | Cancel was requested during an active prompt. Worker is still running but will stop. Queuing is rejected. Resolver replies are still accepted (they may be needed to unblock the worker). |
-| **CANCEL_LATCHED** | false      | true             | false         | Cancel was requested while idle (or the worker finished after cancel). The cancel flag persists until the next prompt, compact, or session-switch clears it. |
-| **COMPACT_ACTIVE** | true       | false            | false         | A `compact` command is running synchronously on the main loop. No other commands can be processed (main loop is blocked). Cancellable only via the external `cancel_requested` callback. |
-| **SHUTTING_DOWN**  | *          | *                | true          | Input closed or write failure occurred. Active prompt is canceled, queues are cleaned up, and the loop exits. |
+| State             | Description                                                                 |
+|-------------------|-----------------------------------------------------------------------------|
+| **IDLE**          | No pending prompt. All commands accepted. `steer`/`follow_up` rejected (no active prompt). |
+| **PROMPT_PENDING** | A `prompt` (or `invoke_command`-with-prompt) has been sent; its terminal response has not yet been received. `steer`, `follow_up`, `cancel`, `permission_reply`, `question_reply`, and read-only queries are accepted. New prompts, session mutations, and `compact` are rejected. |
+| **CANCELING**     | A sub-state of PROMPT_PENDING: `cancel` was sent while a prompt was pending. `steer`/`follow_up` are now rejected. The client waits for the prompt's terminal response (which will be an error). |
+| **COMPACT_PENDING** | A `compact` was sent; its terminal response has not yet been received. The server processes `compact` synchronously and will not read or process any other input until it completes. |
 
-### Notes on COMPACT_ACTIVE
+### Pending Sub-States within PROMPT_PENDING
 
-`compact` is the only command that both:
-- Runs synchronously on the main loop thread (blocking all input processing).
-- Sets `active_run = true` during its execution.
+While in PROMPT_PENDING, the client may receive `permission_requested`
+or `question_requested` events. These create an expectation that the
+client must send a matching `permission_reply` or `question_reply`
+before the prompt can make progress:
 
-This means no RPC command (including `cancel`) can be processed while
-compact is running.  The only cancellation path is the
-`base_cancel_requested` callback supplied in `RuntimeRunOptions`,
-which the compact handler polls internally.
+| Sub-state                  | Trigger                                              | Expected client action           |
+|----------------------------|------------------------------------------------------|----------------------------------|
+| Permission reply expected   | Received `permission_requested` event                | Send `permission_reply`          |
+| Question reply expected    | Received `question_requested` event                 | Send `question_reply`            |
 
-Other synchronous commands (`context`, `export`, `export_html`,
-plugin, MCP) check `active_run` but do NOT set it, because they are
-expected to be fast and non-interruptible.  They still reject if a
-prompt is active.
+Multiple permission/question requests may be pending simultaneously
+(though in practice they are sequential). The prompt remains blocked
+until each is resolved.
 
-## 4. State Transitions
+### Transitions
 
-### IDLE → PROMPT_ACTIVE
+| From              | To               | Trigger                                                              |
+|-------------------|------------------|----------------------------------------------------------------------|
+| IDLE              | PROMPT_PENDING   | Client sends `prompt` or `invoke_command` (with prompt_message).     |
+| IDLE              | COMPACT_PENDING  | Client sends `compact`.                                              |
+| PROMPT_PENDING    | IDLE             | Client receives terminal response for the pending prompt (success). |
+| PROMPT_PENDING    | CANCELING        | Client sends `cancel`.                                               |
+| PROMPT_PENDING    | PROMPT_PENDING   | Client receives terminal response for a prompt, but a follow-up was queued and starts running (see §6). |
+| CANCELING         | IDLE             | Client receives terminal response for the canceled prompt (error).   |
+| COMPACT_PENDING   | IDLE             | Client receives terminal response for `compact`.                     |
 
-**Trigger:** Client sends `prompt` (or `invoke_command` that produces a `prompt_message`).
+### Note on `cancel` while IDLE
 
-**Preconditions:** `active_run` is false.
+If the client sends `cancel` while in IDLE, the server immediately
+responds with `{"cancel_requested":true,"active_run":false,…}`. The
+client stays in IDLE. However, the server latches a `cancel_requested`
+flag that is observable via `get_state` and is automatically cleared
+when the next `prompt`, `compact`, or session-switch command is sent.
 
-**Side effects:**
-1. If a previous worker thread is finished but not yet joined, `reap_finished_prompt()` joins it.
-2. `set_active_run(true, command->id)` — sets `active_run = true`, `active_request_id = command->id`, clears `cancel_requested`.
-3. For `prompt`: image attachments are imported under `session_mutex`.
-4. For `invoke_command`: `run_command()` is called under `session_mutex`; if it returns `prompt_message`, the worker is launched with that message.
-5. Worker thread is launched. The worker will:
-   - Resolve provider credentials.
-   - Set up permission and question resolvers that emit `permission_requested` / `question_requested` events and block until the client replies.
-   - Call `run_prompt()` which runs the agent loop (tool calls, provider requests, streaming events).
-   - After the prompt completes, check for queued follow-ups and chain them.
-   - Write the terminal success/error response for the request id.
-   - Call `deactivate_and_clear_queued_messages()` to set `active_run = false` and clear remaining queues.
+### Note on `compact` blocking
 
-### IDLE → COMPACT_ACTIVE
+While the server processes `compact`, it does not read any further
+input. From the client's perspective, this means any command sent
+during COMPACT_PENDING will not be processed until after the `compact`
+response is received. This is a protocol-level constraint: the client
+should not send commands during COMPACT_PENDING (or must accept that
+they will be delayed).
 
-**Trigger:** Client sends `compact`.
+## 3. Command Reference
 
-**Preconditions:** `active_run` is false.
+Every command is a JSON object with at least `"id"` (unique string)
+and `"type"` (command name) fields.
 
-**Side effects:**
-1. Lock `run_state.mutex`, set `active_run = true`, `active_request_id = command->id`, clear `cancel_requested`.
-2. Resolve provider and runtime options under `session_mutex`.
-3. Call `run_command(session, {"/compact", ...})` synchronously on the main loop thread. This calls `generate_compaction_summary()` which makes a provider request.
-4. The `cancel_requested` callback polls both `run_state.cancel_requested` and the base callback.
-5. On completion (success or error): `clear_compact_active_run()` sets `active_run = false`. → IDLE.
+### 3.1 Commands accepted in all states
 
-### IDLE → CANCEL_LATCHED
+These commands produce an immediate terminal response and do not
+change the client's state (unless explicitly noted).
 
-**Trigger:** Client sends `cancel` while `active_run` is false.
+| Command                  | Parameters                      | Response / Events                                                                 |
+|--------------------------|---------------------------------|-----------------------------------------------------------------------------------|
+| `get_protocol`           | —                               | Response with protocol version and supported session entry versions.              |
+| `get_state`              | —                               | Response with session id, model, mode, reasoning, and `cancel_requested` flag.   |
+| `list_sessions`          | —                               | Response with list of session ids.                                               |
+| `session_tree`           | —                               | Response with session tree (path, children, metadata).                          |
+| `list_models`            | —                               | Response with configured model catalog.                                          |
+| `session_metadata`       | —                               | Response with session name, labels, actor, timestamps.                          |
+| `permission_grants`     | —                               | Response with active session permission grants.                                  |
+| `permission_grant_revoke`| `grant_id`                      | Event `permission_grant_revoked` + response with revoked grant.                 |
+| `permission_grants_clear`| —                               | Event `permission_grants_cleared` + response with cleared count.                |
+| `permission_reply`       | `request_id`, `correlation_id`, `decision`, `reason`? | Event `permission_replied` + response `{"success":true}`. Errors if no matching pending request or mismatched correlation_id. |
+| `question_reply`        | `request_id`, `correlation_id`, `answer`? / `selected`? / `selected_options`? | Event `question_replied` + response `{"success":true}`. Errors if no matching pending request, mismatched correlation_id, or invalid selection. |
+| `cancel`                 | —                               | Event `cancel_requested` + skip events for cleared queue items + response with `cancel_requested`, `active_run`, cleared counts. If prompt pending: transitions to CANCELING. |
 
-**Side effects:**
-1. `cancel_requested.store(true)`.
-2. Queues are cleared (both are empty since no prompt is active).
-3. Pending resolvers are canceled (none should exist).
-4. `cancel_requested` event is emitted.
-5. Response: `{"cancel_requested":true,"active_run":false,"cleared_steer":0,"cleared_follow_up":0}`.
+### 3.2 Commands accepted only in IDLE (rejected in PROMPT_PENDING)
 
-### PROMPT_ACTIVE → PROMPT_CANCEL
+These are rejected with an error response when a prompt is pending.
 
-**Trigger:** Client sends `cancel` while `active_run` is true.
+| Command                  | Parameters                      | Response / Events                                                                 |
+|--------------------------|---------------------------------|-----------------------------------------------------------------------------------|
+| `prompt`                 | `message`, `attachments`?, `images`? | Many events (session_start, message_update, assistant_message, tool_call, etc.) + terminal response. Transitions to PROMPT_PENDING. |
+| `invoke_command`         | `name`, `command_arguments`?    | Events + terminal response. May produce a prompt (transitions to PROMPT_PENDING) or return synchronously (stays IDLE). |
+| `compact`                | `instructions`?                 | Events (compaction_start, compaction_end) + terminal response. Transitions to COMPACT_PENDING. |
+| `context`                | —                               | Terminal response with context output.                                           |
+| `export`                 | —                               | Terminal response with export text.                                              |
+| `export_html`            | `outputPath`? / `output_path`?  | Terminal response with HTML export.                                               |
+| `list_commands`          | —                               | Terminal response with command registry.                                          |
+| `get_messages`           | —                               | Terminal response with session messages.                                         |
+| `get_session_stats`      | —                               | Terminal response with session entry counters.                                    |
+| `validate_session`       | —                               | Terminal response with validation result.                                        |
+| `set_session_name`       | `session_name`                  | Terminal response with updated metadata.                                         |
+| `set_session_labels`     | `labels`                       | Terminal response with updated metadata.                                         |
+| `permission_rules`       | —                               | Terminal response with persistent permission rules.                               |
+| `permission_rule_add`    | `action`, `operation`, `reason`, `scope`?, `mode`?, `target_path`?, `tool_name`?, `command`? | Event `permission_rule_added` + terminal response with added rule. |
+| `permission_rule_remove` | `rule_id`                      | Event `permission_rule_removed` + terminal response with removed rule.          |
+| `set_model`              | `model`, `provider`?            | Terminal response with updated state.                                            |
+| `cycle_model`            | —                               | Terminal response with cycled model state.                                       |
+| `set_reasoning`          | `reasoning_level`, `reasoning_budget_tokens`?, `reasoning_display`? | Terminal response with reasoning state.                              |
+| `clear_reasoning`        | —                               | Terminal response with reasoning cleared.                                        |
+| `fork_session`           | `session_id`?, `branch_from_entry_id`?, `session_name`?, `labels`? | Terminal response with new session state. Clears latched cancel.    |
+| `clone_session`          | `session_id`?, `session_name`?, `labels`? | Terminal response with new session state. Clears latched cancel.          |
+| `summarize_branch`       | `branch_root_entry_id`, `branch_tip_entry_id`, `summary`, `provider`, `model`, `reason`, `session_id`? | Terminal response with branch summary entry. |
+| `new_session`            | —                               | Terminal response with new session state. Clears latched cancel.                  |
+| `open_session`           | `session_id`                    | Terminal response with switched session state. Clears latched cancel.            |
+| `switch_session`         | `session_id`                    | Same as `open_session`.                                                          |
+| Plugin commands          | Various                         | Terminal response with plugin output.                                             |
+| MCP commands             | Various                         | Terminal response with MCP output.                                               |
 
-**Side effects:**
-1. Lock `run_state.mutex`:
-   - `cancel_requested.store(true)`.
-   - Capture `active_run` and `active_request_id`.
-   - Move all steering messages to `cleared.steering_messages`.
-   - Move all follow-up messages to `cleared.follow_up_messages`.
-2. `cancel_pending_resolvers()` — resolves all pending permission/question requests as denied/canceled, notifies condition variable.
-3. Write `steer_skipped` / `follow_up_skipped` events for each cleared message.
-4. Write `cancel_requested` event with `active_run`, cleared counts, and `active_request_id`.
-5. Write `follow_up_skipped` error responses for each cleared follow-up.
-6. Response: `{"cancel_requested":true,"active_run":true,"cleared_steer":N,"cleared_follow_up":M}`.
-7. The worker notices `cancel_requested` (via its `cancel_requested` callback or the next resolver check) and stops the agent loop.
-8. Worker writes its terminal response (canceled error for the prompt).
-9. Worker calls `deactivate_and_clear_queued_messages()` → `active_run = false`. → CANCEL_LATCHED.
+### 3.3 Commands accepted only in PROMPT_PENDING
 
-### PROMPT_ACTIVE → IDLE (normal completion)
+| Command     | Parameters  | Response / Events                                                                    |
+|-------------|-------------|--------------------------------------------------------------------------------------|
+| `steer`     | `message`   | Event `steer_queued` + immediate terminal response `{"queued":true,"correlation_id":…}`. Rejected if cancel was already sent or input closed. |
+| `follow_up` | `message`   | Event `follow_up_queued` only. No immediate terminal response — the response comes later when the follow-up is run or skipped. Rejected if cancel was already sent or input closed. |
 
-**Trigger:** The worker finishes the prompt and all follow-ups without cancel.
+**Gate check order for `steer`/`follow_up`:**
+1. Input closed → error "RPC input is closed"
+2. Cancel requested → error "agent loop canceled"
+3. No active prompt → error "RPC command requires an active prompt"
+4. Queue limit exceeded → error "RPC queued message limit exceeded"
 
-**Side effects:**
-1. Worker writes the terminal success response for the last prompt/follow-up.
-2. Worker calls `deactivate_and_clear_queued_messages()`:
-   - `active_run = false`.
-   - `active_request_id` cleared.
-   - Remaining queues cleared (should be empty).
-3. Worker writes `steer_skipped` / `follow_up_skipped` events for any leftover messages.
-4. Worker exits. → IDLE (cancel_requested is still false).
+### 3.4 `invoke_command` dual behavior
 
-### PROMPT_ACTIVE → PROMPT_ACTIVE (follow-up chaining)
+`invoke_command` dispatches a slash command. If the command produces
+a `prompt_message`, it behaves like `prompt` (transitions to
+PROMPT_PENDING, emits events, terminal response comes later). If not,
+it returns synchronously with a terminal response and stays in IDLE.
+The client cannot predict which path will be taken — it must wait for
+the terminal response to know.
 
-**Trigger:** The worker finishes a prompt and finds a queued follow-up.
-
-**Side effects:**
-1. `before_terminal_response()` calls `prepare_next_follow_up()`:
-   - `take_next_follow_up_message()` dequeues the next follow-up (unless `cancel_requested` or `input_closed`).
-   - If a follow-up exists: `set_active_request_id(follow_up->request_id)` — sets `active_run = true` with the new request_id.
-   - If no follow-up: `set_active_run(false)` — sets `active_run = false`.
-2. Worker writes the terminal response for the just-completed prompt.
-3. If a follow-up was dequeued: `follow_up_started` event is emitted, then `run_one_prompt()` is called with the follow-up message.
-4. The follow-up runs as a new prompt with its own request_id, permission/question resolvers, and steering message correlation.
-
-### CANCEL_LATCHED → IDLE
-
-**Trigger:** Client sends `prompt`, `compact`, or a session-switch command (`new_session`, `open_session`, `switch_session`, `fork_session`, `clone_session`).
-
-**Side effects:**
-- For `prompt`/`compact`: `set_active_run(true, …)` or the compact handler clears `cancel_requested`.
-- For session-switch: `reset_cancel_after_session_switch()` clears `cancel_requested`.
-
-### CANCEL_LATCHED → PROMPT_ACTIVE
-
-**Trigger:** Client sends `prompt` while `cancel_requested` is latched.
-
-**Side effects:** Same as IDLE → PROMPT_ACTIVE, but `set_active_run(true, …)` clears the latched `cancel_requested` flag as part of the transition.
-
-### Any state → SHUTTING_DOWN
-
-**Trigger:** EOF on input (stdin closed) or output write failure.
-
-**Side effects:**
-1. `close_input_and_cancel()`:
-   - `input_closed = true`.
-   - `cancel_requested = true`.
-   - All queues cleared.
-2. `cancel_pending_resolvers()` — unblocks any pending permission/question waits.
-3. If a worker is running: `steer_skipped` / `follow_up_skipped` events for cleared messages.
-4. `follow_up_skipped` error responses for cleared follow-ups.
-5. Worker thread is joined (`prompt_worker.reset()`).
-6. Check for async errors.
-7. Loop exits. Return to caller.
-
-## 5. Command-to-State Gate Matrix
-
-### Commands accepted in ALL states (IDLE, PROMPT_ACTIVE, PROMPT_CANCEL, CANCEL_LATCHED)
-
-These commands never check `active_run`. They are safe to run
-concurrently with a prompt because they only read session state under
-`session_mutex` or operate on independent state.
-
-| Command                   | Notes                                                              |
-|--------------------------|--------------------------------------------------------------------|
-| `get_protocol`           | Returns protocol version. No state access.                        |
-| `get_state`              | Reads `cancel_requested` and session snapshot under `session_mutex`. |
-| `list_sessions`          | Reads session list under `session_mutex`.                          |
-| `session_tree`           | Reads session tree under `session_mutex`.                          |
-| `list_models`            | Reads model registry.                                              |
-| `session_metadata`       | Reads session metadata.                                             |
-| `permission_grants`      | Lists session grants from `pending_state`.                         |
-| `permission_grant_revoke`| Revokes a grant from `pending_state`. Emits `permission_grant_revoked` event. |
-| `permission_grants_clear`| Clears all grants. Emits `permission_grants_cleared` event.        |
-| `permission_reply`       | Resolves a pending permission request. Requires matching `request_id` and `correlation_id`. Emits `permission_replied` event. |
-| `question_reply`         | Resolves a pending question request. Requires matching `request_id` and `correlation_id`. Emits `question_replied` event. |
-| `cancel`                 | Sets `cancel_requested`, clears queues, cancels pending resolvers. Works in all states (idle or active). |
-
-**Note:** During COMPACT_ACTIVE, the main loop is blocked, so none of
-these can actually be processed.  The gate matrix applies to states
-where the main loop is running.
-
-### Commands accepted only when NOT active (IDLE, CANCEL_LATCHED)
-
-These commands are rejected with `active_run_reject_error` when
-`active_run` is true.  They either mutate the session or run
-synchronous commands that access the session store.
-
-| Command                     | Reason for rejection during active run                          |
-|-----------------------------|-----------------------------------------------------------------|
-| `prompt`                    | Starts a new prompt; would conflict with the running one.       |
-| `invoke_command`            | May produce a prompt or access the session store.               |
-| `compact`                   | Runs a synchronous provider call; sets `active_run` itself.     |
-| `context`                   | Runs `run_command` synchronously; accesses session store.       |
-| `export`                    | Same as `context`.                                              |
-| `export_html`               | Same as `context`.                                               |
-| `list_commands`             | Loads command registry from session.                            |
-| `get_messages`              | Reads session messages; could race with prompt writes.          |
-| `get_session_stats`         | Reads session stats.                                              |
-| `validate_session`          | Validates session replay.                                         |
-| `set_session_name`          | Mutates session metadata.                                         |
-| `set_session_labels`        | Mutates session metadata.                                         |
-| `permission_rules`          | Reads permission rule files.                                      |
-| `permission_rule_add`       | Writes permission rule files. Emits `permission_rule_added` event. |
-| `permission_rule_remove`    | Writes permission rule files. Emits `permission_rule_removed` event. |
-| `set_model`                 | Switches the active model.                                        |
-| `cycle_model`               | Cycles to the next model.                                        |
-| `set_reasoning`             | Sets reasoning configuration.                                    |
-| `clear_reasoning`           | Clears reasoning configuration.                                   |
-| `fork_session`              | Creates a session fork and switches to it.                       |
-| `clone_session`             | Creates a session clone and switches to it.                      |
-| `summarize_branch`          | Appends a branch summary to a session.                           |
-| `new_session`               | Creates and switches to a new session. Clears `cancel_requested`. |
-| `open_session`              | Opens an existing session. Clears `cancel_requested`.            |
-| `switch_session`            | Same as `open_session`.                                          |
-| Plugin commands (all)       | Run plugin slash commands synchronously.                         |
-| MCP commands (all)          | Run MCP slash commands synchronously.                            |
-
-### Commands accepted only when active (PROMPT_ACTIVE)
-
-| Command     | Gate                                                            |
-|-------------|-----------------------------------------------------------------|
-| `steer`     | Requires `active_run = true`, `active_request_id` non-empty, `cancel_requested = false`, `input_closed = false`. Queues a steering message tagged with the current `active_request_id` as `correlation_id`. Emits `steer_queued` event. |
-| `follow_up` | Same gates as `steer`. Queues a follow-up message. Emits `follow_up_queued` event. Does NOT write a success response (the response comes when the follow-up is run or skipped). |
-
-**Gate check order in `queue_rpc_message`:**
-1. `input_closed` → error "RPC input is closed"
-2. `cancel_requested` → error "agent loop canceled"
-3. `!active_run || active_request_id.empty()` → error "RPC command requires an active prompt"
-4. Queue size / message size limits → error "RPC queued message limit exceeded"
-
-### Special: `invoke_command` dual behavior
-
-`invoke_command` has two paths:
-1. **No prompt_message:** `run_command()` returns a result synchronously. The result is written as a success response. No worker is launched.
-2. **With prompt_message:** `run_command()` returns a `prompt_message`. The main loop then launches a prompt worker with that message, just like `prompt`. The transition to PROMPT_ACTIVE happens.
-
-Both paths are gated by `active_run = false`.
-
-### Special: `compact` as a synchronous active run
-
-`compact` shares the code block with `context`/`export`/etc., but unlike them it sets `active_run = true` during its execution.  This allows:
-- The `cancel_requested` callback to poll `run_state.cancel_requested`.
-- Future `steer`/`follow_up` to be queued (though in practice the main loop is blocked, so this can't happen via RPC).
-
-When `compact` finishes (success or error), `clear_compact_active_run()`
-calls `set_active_run(false)`, returning to IDLE.
-
-## 6. Event Taxonomy
+## 4. Event Reference
 
 ### Permission Events
 | Event name               | When emitted                                          | Payload type |
 |--------------------------|-------------------------------------------------------|-------------|
-| `permission_requested`   | Worker needs permission for a tool call.              | `permission`|
-| `permission_replied`     | Client replied to a permission request.               | `permission`|
-| `permission_rule_added`  | Client added a persistent permission rule.             | `permission`|
-| `permission_rule_removed`| Client removed a persistent permission rule.          | `permission`|
-| `permission_grant_revoked`| Client revoked a session grant.                     | `permission`|
-| `permission_grants_cleared`| Client cleared all session grants.                  | `permission`|
+| `permission_requested`   | The running prompt needs permission for a tool call. | `permission`|
+| `permission_replied`     | Client sent `permission_reply`.                       | `permission`|
+| `permission_rule_added`  | Client sent `permission_rule_add`.                    | `permission`|
+| `permission_rule_removed`| Client sent `permission_rule_remove`.                 | `permission`|
+| `permission_grant_revoked`| Client sent `permission_grant_revoke`.              | `permission`|
+| `permission_grants_cleared`| Client sent `permission_grants_clear`.            | `permission`|
 
 ### Question Events
 | Event name           | When emitted                                   | Payload type |
 |----------------------|------------------------------------------------|-------------|
-| `question_requested` | Worker needs a question answered.              | `question`  |
-| `question_replied`   | Client replied to a question request.         | `question`  |
+| `question_requested` | The running prompt needs a question answered.  | `question`  |
+| `question_replied`   | Client sent `question_reply`.                  | `question`  |
 
 ### Queue Events
 | Event name           | When emitted                                              | Payload type |
 |----------------------|-----------------------------------------------------------|-------------|
 | `steer_queued`       | Client sent `steer`; message accepted into queue.        | `queue`     |
-| `steer_applied`      | Worker consumed a steering message before next provider request. | `queue` |
-| `steer_skipped`      | Steering message was cleared without being applied.       | `queue`     |
+| `steer_applied`      | The prompt consumed a steering message before the next provider request. | `queue` |
+| `steer_skipped`      | A steering message was cleared without being applied.     | `queue`     |
 | `follow_up_queued`   | Client sent `follow_up`; message accepted into queue.    | `queue`     |
-| `follow_up_started`  | Worker begins running a queued follow-up.                | `queue`     |
-| `follow_up_skipped`  | Follow-up was cleared without being run.                  | `queue`     |
+| `follow_up_started`  | The server begins running a queued follow-up.            | `queue`     |
+| `follow_up_skipped`  | A follow-up was cleared without being run.                | `queue`     |
 
 ### Cancellation Events
-| Event name          | When emitted                                        | Payload type   |
+| Event name          | When emitted               | Payload type   |
 |---------------------|-----------------------------------------------------|---------------|
-| `cancel_requested`  | Client sent `cancel`.                               | `cancellation`|
+| `cancel_requested`  | Client sent `cancel`. | `cancellation`|
 
-### Runtime Events (from agent loop)
+### Runtime Events (emitted during prompt execution)
 | Event name            | When emitted                                           |
 |-----------------------|--------------------------------------------------------|
-| `session_start`       | Prompt worker starts a provider turn.                  |
-| `message_update`      | Streaming delta from the provider.                     |
+| `session_start`       | A provider turn begins.                                |
+| `message_update`      | Streaming text delta from the provider.                |
 | `assistant_message`   | Final assistant text for a turn.                       |
 | `tool_call`           | A tool was called.                                     |
 | `retry`               | Transport retry.                                       |
-| `canceled`            | Agent loop was canceled.                               |
-| `error`               | Agent loop encountered an error.                      |
+| `canceled`            | The agent loop was canceled.                           |
+| `error`               | The agent loop encountered an error.                   |
 | `compaction_start`    | Compact operation begins.                              |
-| `compaction_end`      | Compact operation completes.                           |
+| `compaction_end`      | Compact operation completes.                            |
 
-## 7. Correlation IDs
+## 5. Correlation IDs
 
-The `correlation_id` field in events and queue messages identifies
-which prompt request a message belongs to:
+The `request_id` and `correlation_id` fields in events identify which
+prompt a message belongs to:
 
-- For `steer`/`follow_up`: `correlation_id` = `active_request_id` at
-  the time of queuing. This is the request id of the currently running
-  prompt.
-- For `permission_requested`/`question_requested`: `correlation_id` =
-  `prompt_request_id` (the request id of the prompt that triggered the
-  resolver).
-- For `steer_applied`: `correlation_id` = the request id of the prompt
-  that consumed the steering message (may differ from the original if
-  the steer was queued during one prompt and applied during a
-  follow-up, though in practice steers are always consumed by the
-  prompt they were queued for).
-- For `follow_up_started`: `correlation_id` = `request_id` = the
-  follow-up's own request id.
+- **`request_id`**: The `id` of the RPC command that caused this
+  event. For `steer_queued`/`follow_up_queued`, this is the
+  steer/follow_up command's `id`. For `permission_requested`/
+  `question_requested`, this is the prompt command's `id`.
 
-The `request_id` field in events identifies the RPC command that
-caused the event. For steer/follow_up queued events, `request_id` is
-the steer/follow_up command's id. For permission/question events,
-`request_id` is the prompt command's id.
+- **`correlation_id`**: The `id` of the currently running prompt.
+  For `steer_queued`/`follow_up_queued`, this is the prompt `id` that
+  was active when the message was queued. For `permission_requested`/
+  `question_requested`, this is the prompt `id` that triggered the
+  resolver. For `follow_up_started`, this is the follow-up's own `id`
+  (it becomes the active prompt).
 
-## 8. Steering Message Lifecycle
+- For `permission_reply`/`question_reply` commands: the client must
+  supply `request_id` (the resolver request id from the
+  `permission_requested`/`question_requested` event) and
+  `correlation_id` (the prompt `id` that the event's `correlation_id`
+  matched). The server verifies that these match a pending request.
 
-1. Client sends `steer` with `message`.
-2. Main loop calls `queue_rpc_message(steering_messages, …)`. The message is tagged with `correlation_id = active_request_id`.
-3. `steer_queued` event is emitted.
-4. Success response `{"queued":true,"correlation_id":…}` is written.
-5. The worker calls `take_steering_messages(run_state, request_id)` which dequeues all steering messages with matching `correlation_id`.
-6. For each dequeued message: `steer_applied` event is emitted, and the message text is appended to the steering messages list passed to the agent loop.
-7. The agent loop incorporates the steering messages into the next provider request.
-8. If the prompt finishes before consuming a steering message: `clear_queued_steering_messages()` dequeues all remaining, and `steer_skipped` events are emitted.
+## 6. Steering Message Lifecycle
 
-## 9. Follow-up Message Lifecycle
+1. Client sends `steer` with `message` and a new `id`.
+2. Server emits `steer_queued` event (with `request_id` = steer `id`,
+   `correlation_id` = active prompt `id`).
+3. Server sends immediate terminal response `{"queued":true,"correlation_id":…}`.
+4. At some later point, the prompt consumes the steering message
+   before the next provider request.
+5. Server emits `steer_applied` event.
+6. The steering message text is incorporated into the next provider
+   request.
+7. If the prompt finishes or is canceled before consuming the steering
+   message: server emits `steer_skipped` event.
 
-1. Client sends `follow_up` with `message`.
-2. Main loop calls `queue_rpc_message(follow_up_messages, …)`. The message is tagged with `correlation_id = active_request_id`.
-3. `follow_up_queued` event is emitted.
-4. No success response is written yet (the response comes later).
-5. After the current prompt completes, the worker calls `take_next_follow_up_message()`.
-6. If a follow-up exists and no cancel is requested:
-   a. `set_active_request_id(follow_up->request_id)` — updates `active_run` and `active_request_id`.
-   b. `follow_up_started` event is emitted.
-   c. `run_one_prompt()` is called with the follow-up message.
-   d. Terminal response is written for the follow-up's request id.
-7. If no follow-up exists: `set_active_run(false)`.
-8. If cancel is requested: follow-up is not run. `follow_up_skipped` event and error response are emitted.
+## 7. Follow-up Message Lifecycle
 
-## 10. Permission Resolution Lifecycle
+1. Client sends `follow_up` with `message` and a new `id`.
+2. Server emits `follow_up_queued` event (with `request_id` =
+   follow_up `id`, `correlation_id` = active prompt `id`).
+3. **No immediate terminal response.** The client must wait.
+4. After the current prompt's terminal response is sent, the server
+   checks for queued follow-ups.
+5. If a follow-up exists and cancel was not requested:
+   a. Server emits `follow_up_started` event (with `request_id` =
+      `correlation_id` = follow_up `id`).
+   b. The follow-up runs as a new prompt with its own message.
+   c. Runtime events are emitted as normal.
+   d. Server sends terminal response for the follow_up `id`.
+6. If cancel was requested, or input was closed:
+   a. Server emits `follow_up_skipped` event.
+   b. Server sends terminal error response for the follow_up `id`
+      (error: "agent loop canceled" or "queued follow_up skipped").
+7. After the follow-up completes, the server checks for more queued
+   follow-ups. Steps 5–7 repeat until the queue is empty, at which
+   point the client returns to IDLE.
 
-1. The agent loop calls a tool that requires permission.
-2. The permission resolver (created by `make_rpc_permission_resolver`) is invoked.
-3. If `cancel_requested` or `input_closed`: returns `canceled_error` immediately.
-4. If the policy resolver allows: returns `Allow` (no event emitted).
-5. If the policy resolver authoritatively denies: returns `Deny` (no event emitted).
-6. If a matching session grant exists: returns `AllowSessionGrant` (no event emitted).
-7. Otherwise: creates a `PendingPermissionRequest`, emits `permission_requested` event, and blocks on the condition variable.
-8. Client sends `permission_reply` with `request_id`, `correlation_id`, and `decision` (allow/allow_session/deny).
-9. `resolve_permission_reply()` finds the pending request, verifies `correlation_id`, resolves it, and notifies the condition variable.
-10. If `allow_session`: a `PermissionSessionGrant` is created (deduplicated).
-11. The resolver returns the decision to the agent loop.
-12. The `permission_replied` event is emitted after the reply is processed.
+**Key protocol property:** While a follow-up is running, the client is
+still in PROMPT_PENDING. New `steer`/`follow_up` commands are
+accepted and associated with the follow-up's `id` (the new active
+prompt).
 
-## 11. Question Resolution Lifecycle
+## 8. Permission Resolution Lifecycle
 
-1. The agent loop calls a tool that asks a question.
-2. The question resolver (created by `make_rpc_question_resolver`) is invoked.
-3. If `cancel_requested` or `input_closed`: returns `canceled_error` immediately.
-4. Otherwise: creates a `PendingQuestionRequest`, emits `question_requested` event, and blocks on the condition variable.
-5. Client sends `question_reply` with `request_id`, `correlation_id`, and either `answer`, `selected`, or `selected_options`.
-6. `resolve_question_reply()` validates the reply, resolves the request, and notifies the condition variable.
-7. The `question_replied` event is emitted.
-8. The resolver returns the answer to the agent loop.
+1. During a prompt, the agent needs permission for a tool call.
+2. If a permission policy auto-allows or a session grant matches, no
+   event is emitted and the prompt continues. The client never sees
+   this.
+3. Otherwise, the server emits `permission_requested` event with:
+   - `request_id` = prompt `id`
+   - `correlation_id` = prompt `id`
+   - `resolver_request_id` (in payload) = a unique id for this
+     resolver request (e.g. `"permission_…"`).
+4. The prompt is now blocked. The client must send `permission_reply`
+   with:
+   - `request_id` = the `resolver_request_id` from the event payload.
+   - `correlation_id` = the prompt `id`.
+   - `decision` = `"allow"`, `"allow_session"`, or `"deny"`.
+   - `reason` (optional).
+5. Server validates the reply, emits `permission_replied` event, and
+   sends terminal response `{"success":true}` for the
+   `permission_reply` command's `id`.
+6. If `decision` is `"allow_session"`: a session grant is created
+   (deduplicated) that will auto-allow matching future permission
+   requests without emitting an event.
+7. The prompt unblocks and continues with the decision.
 
-## 12. Known Races and Design Weaknesses
+**If cancel is sent while a permission is pending:** The server
+resolves the pending request as denied (canceled) and emits the
+appropriate skip/cancel events. The client does not need to send a
+`permission_reply`.
 
-These are the races that motivate the redesign. They all stem from
-`active_run` being a single boolean that is read and written from
-multiple threads without atomicity guarantees with respect to the
-state transitions it guards.
+## 9. Question Resolution Lifecycle
 
-### Race 1: Follow-up-vs-active-run window
+1. During a prompt, the agent asks a question.
+2. The server emits `question_requested` event with:
+   - `request_id` = prompt `id`
+   - `correlation_id` = prompt `id`
+   - `resolver_request_id` (in payload) = a unique id for this
+     resolver request (e.g. `"question_…"`).
+   - Options, multiple-select flag, custom-answer flag (in payload).
+3. The prompt is now blocked. The client must send `question_reply`
+   with:
+   - `request_id` = the `resolver_request_id` from the event payload.
+   - `correlation_id` = the prompt `id`.
+   - One of: `answer` (custom text, only if `allow_custom` is true),
+     `selected` (single option value), or `selected_options` (array
+     of option values, only if `multiple` is true).
+4. Server validates the reply, emits `question_replied` event, and
+   sends terminal response `{"success":true}` for the
+   `question_reply` command's `id`.
+5. The prompt unblocks and continues with the answer.
 
-In the prompt worker, `prepare_next_follow_up()` is called as the
-`before_terminal_response` callback — before the terminal response is
-written.  If there is no follow-up, it calls
-`set_active_run(false)`, setting `active_run = false` while the worker
-is still running (it still needs to write the terminal response and
-do cleanup).
+**If cancel is sent while a question is pending:** Same as
+permission — the server resolves the pending request as canceled.
 
-During this window:
-- The main loop can accept a new `prompt` (it sees `active_run = false`).
-- `reap_finished_prompt()` will join the old worker, but the old
-  worker may still be writing its terminal response or cleanup events.
-- A `steer`/`follow_up` sent during this window is rejected
-  (`requires_active_prompt`), which is correct but may surprise the
-  client if it was sent in response to seeing a partial output.
+## 10. Cancellation Lifecycle
 
-**Root cause:** `active_run` is set to false before the worker has
-fully completed its cleanup.
+1. Client sends `cancel` with a new `id`.
+2. Server clears all queued steering and follow-up messages.
+3. Server resolves all pending permission/question requests as denied
+   (canceled).
+4. Server emits `steer_skipped` / `follow_up_skipped` events for each
+   cleared queue item.
+5. Server emits `cancel_requested` event with `active_run` flag,
+   cleared counts, and the active request id.
+6. Server sends terminal error responses for each cleared follow-up
+   (`"agent loop canceled"`).
+7. Server sends terminal response for the `cancel` command's `id`
+   with `cancel_requested`, `active_run`, and cleared counts.
+8. If a prompt was active: the prompt receives the cancel signal and
+   eventually emits its terminal response (error: canceled). The
+   client is then in CANCELING until that response arrives.
 
-### Race 2: Mutating-command-after-success window
+**Cancel while IDLE:** The server still sets a `cancel_requested`
+flag (observable via `get_state`). The next `prompt`, `compact`, or
+session-switch command clears it automatically. No queue cleanup is
+needed (queues are empty).
 
-After `prepare_next_follow_up()` sets `active_run = false` (no
-follow-up), but before the worker finishes, the main loop can accept
-session-mutating commands like `set_model`, `fork_session`, etc.
-These commands mutate the session under `session_mutex`, which is also
-used by the worker.  If the worker is still accessing the session
-(e.g., writing the terminal response which includes `session_id`), the
-mutation could produce inconsistent results.
+## 11. Input Closure
 
-**Root cause:** Same as Race 1 — `active_run` is cleared prematurely.
+When the input stream reaches EOF, the server:
 
-### Race 3: Cancel-during-follow-up-preparation
+1. Cancels any active prompt (as if `cancel` was sent).
+2. Clears all queued messages.
+3. Emits `steer_skipped` / `follow_up_skipped` events for cleared
+   items.
+4. Sends terminal error responses for cleared follow-ups.
+5. Stops processing and exits.
 
-`prepare_next_follow_up()` calls `take_next_follow_up_message()`
-which checks `cancel_requested` under `run_state.mutex`.  But after
-it returns, the worker checks `cancel_requested()` again in the while
-loop condition.  If cancel is requested between these two checks, the
-follow-up was dequeued (and `active_request_id` was set) but will not
-be run.  The follow-up is then handled by the cleanup path at the end
-of the worker.
+The client should close the input stream only after receiving all
+expected terminal responses, or when it wants to force shutdown.
 
-This is not strictly a data race (everything is under mutex), but it
-means a follow-up can be transiently in an inconsistent state where
-`active_request_id` has been updated but the prompt hasn't started.
+## 12. Protocol-Level Ambiguities
 
-### Race 4: `reap_finished_prompt` timing
+These are protocol-level issues that the redesign should address:
 
-`reap_finished_prompt()` checks `active_run()` (which locks the
-mutex) and if false, calls `prompt_worker.reset()` (which joins the
-thread).  But between the `active_run()` check and `reset()`, the
-worker could theoretically restart (set `active_run = true` for a
-follow-up).  In practice this can't happen because
-`prepare_next_follow_up` is called before `active_run` is checked,
-but the code is fragile because the check and the action are not
-atomic.
+### 12.1 Follow-up rejection race
 
-### Race 5: Output write failure during cleanup
+The client sends `follow_up` while in PROMPT_PENDING. If the prompt
+finishes and transitions to IDLE before the server processes the
+`follow_up`, the follow-up is rejected with "RPC command requires an
+active prompt." The client has no way to know whether the follow-up
+will be accepted until it receives either the `follow_up_queued`
+event or the error response.
 
-`output.on_write_failure` calls `close_input_and_cancel()` and
-`cancel_pending_resolvers()`.  This can be triggered from either the
-main loop or the worker thread.  If both threads encounter write
-failures simultaneously, the cleanup is called twice, but the
-mutex-protected operations inside are safe.  However, the
-`on_write_failure` callback itself is invoked after unlocking
-`output.mutex`, so it could be called concurrently from two threads.
+### 12.2 Follow-up terminal response ordering
 
-### Race 6: `cancel` and `permission_reply` / `question_reply` interleaving
+After a prompt completes, the server may start a queued follow-up.
+The terminal response for the original prompt and the
+`follow_up_started` event for the follow-up are emitted in the
+correct order (prompt response first, then follow_up_started). But
+the client must track which request ids are still pending.
 
-`cancel` calls `cancel_pending_resolvers()` which resolves all pending
-requests as denied and clears the maps.  If a `permission_reply`
-arrives concurrently (on the main loop, but `cancel` is also on the
-main loop, so this can't happen — both are processed sequentially by
-the main loop).  However, the resolver running on the worker thread
-could be between checking `cancel_requested` and creating the pending
-request when cancel is processed.  The code handles this with a
-post-creation re-check, but the window exists.
+### 12.3 `invoke_command` unpredictability
 
-### Race 7: `set_active_run` clearing `cancel_requested`
+The client cannot predict whether `invoke_command` will produce a
+prompt (transitioning to PROMPT_PENDING with a delayed terminal
+response) or return synchronously (staying in IDLE with an immediate
+terminal response). The client must handle both cases.
 
-`set_active_run(true, …)` clears `cancel_requested` as a side effect.
-This means that if `cancel` is sent while the main loop is between
-checking `active_run` (which returns false) and calling
-`set_active_run(true, …)` (which clears the cancel), the cancel is
-silently dropped.  However, since both `cancel` and `prompt` are
-processed by the single-threaded main loop, this can't happen — the
-cancel would be processed before or after the prompt, never
-concurrently.
+### 12.4 Cancel flag latching
 
-This is not a race in the current single-main-loop design, but it
-would become one if the design were ever changed to process input
-asynchronously.
+An idle `cancel` latches a flag that is observable via `get_state`.
+This flag is cleared by the next `prompt`/`compact`/session-switch.
+The client may see `cancel_requested:true` in `get_state` responses
+even though no prompt was ever active. This is a minor confusion but
+not a correctness issue.
 
-## 13. Summary of Required Behavior
+## 13. Required Invariants
 
-The state machine must enforce the following invariants:
+The protocol must enforce:
 
-1. **At most one prompt worker exists at any time.** A new `prompt` or
-   `invoke_command`-with-prompt can only start after the previous
-   worker has fully finished — including writing its terminal response
-   and all cleanup events.
+1. **At most one prompt is active at a time.** A `prompt` sent while
+   another prompt is pending is rejected.
 
-2. **Session mutations are excluded during active prompts.** Any
-   command that reads or writes the session store in a way that could
-   conflict with the running prompt must be rejected while
-   `active_run` is true.
+2. **Session mutations are excluded during an active prompt.**
+   Commands that read or write the session in ways that could
+   conflict with the running prompt are rejected.
 
 3. **Steering and follow-up messages are only accepted during an
-   active prompt.** They must be associated with the correct
-   `active_request_id` (correlation).
+   active prompt.** They are associated with the active prompt's `id`
+   as `correlation_id`.
 
-4. **Cancel is always accepted.** When idle, it latches until the
-   next prompt clears it.  When active, it cancels the worker, clears
-   queues, and denies pending resolvers.
+4. **Cancel is always accepted.** When sent during a prompt, it
+   cancels the prompt and clears queues. When sent while idle, it
+   latches until the next prompt/compact/session-switch.
 
-5. **Permission and question replies are always accepted.** They must
-   match a pending request by `request_id` and `correlation_id`.
-   Replies with no matching pending request are rejected with an error.
+5. **Permission and question replies are always accepted** if they
+   match a pending request. Replies with no matching pending request
+   are rejected with an error.
 
-6. **Input closure triggers clean shutdown.** The active prompt is
-   canceled, queued messages are cleared with skip events, and the
-   loop exits.
+6. **Every command except `follow_up` receives an immediate terminal
+   response.** `follow_up` receives a `follow_up_queued` event and its
+   terminal response comes later (when the follow-up is run or
+   skipped).
 
-7. **Follow-up chaining is atomic with respect to the active_run
-   state.** The transition from one prompt to its follow-up must not
-   create a window where `active_run` is false (and a new prompt could
-   start).
+7. **Input closure triggers clean shutdown.** The active prompt is
+   canceled, queued messages are cleared with skip events, and
+   follow-ups receive error responses.
 
-8. **The `active_request_id` always reflects the currently running
-   prompt.** Steering messages are tagged with this id so they are
-   consumed by the correct prompt, even across follow-up transitions.
+8. **Follow-up chaining does not create a gap.** The transition from
+   one prompt to its follow-up must not allow a new `prompt` to be
+   accepted in between.
