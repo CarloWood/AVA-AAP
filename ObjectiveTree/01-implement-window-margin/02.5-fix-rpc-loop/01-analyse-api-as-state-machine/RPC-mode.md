@@ -26,11 +26,18 @@ a synchronous command).
 
 | Thread            | Role                                                                 |
 |-------------------|----------------------------------------------------------------------|
-| **Main loop**     | The RPC command dispatch loop. Reads input-stream lines, parses commands, dispatches them, and writes events and responses for synchronous commands. When it receives a `prompt` command it spawns the prompt worker thread. |
+| **Main loop**     | The RPC command dispatch loop. Reads input-stream lines, parses commands, dispatches them. When it receives a `prompt` command it spawns the prompt worker thread. |
 | **Prompt worker** | A `std::jthread` spawned by the main loop for `prompt` and `invoke_command`-with-prompt. Calls `run_prompt()` (the AI agent loop — provider requests, tool calls, streaming deltas), handles follow-up chaining, and writes events plus the terminal response for the prompt. |
 
-Both threads write both events and responses to the output stream.
-Output writes are serialized by `RpcOutput::mutex`.
+While the prompt worker is running, the main loop continues reading
+and processing input lines.  It does **not** merely queue everything:
+
+- `steer` and `follow_up` are **queued** (they require `active_run = true` and are consumed by the worker).
+- All other commands are **processed immediately** by the main loop — `cancel`, `permission_reply`, `question_reply`, `get_state`, `permission_grants`, `permission_rule_add`, etc. each produce their own events and responses written right away.
+
+This means the main loop and the worker both write to the output
+stream concurrently.  Output writes are serialized by
+`RpcOutput::mutex` to prevent interleaved or corrupted output records.
 
 The main loop is single-threaded: while it is blocked inside a
 synchronous command (e.g. `compact`, `context`, `export`), no further
