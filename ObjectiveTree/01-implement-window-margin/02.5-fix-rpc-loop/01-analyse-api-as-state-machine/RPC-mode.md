@@ -25,8 +25,14 @@ completion.
 
 | Thread            | Role                                                                 |
 |-------------------|----------------------------------------------------------------------|
-| **Main loop**     | Reads input-stream lines, parses commands, dispatches, writes responses. |
-| **Prompt worker** | Created for `prompt` and `invoke_command`-with-prompt. Runs the agent loop (`run_prompt`), handles follow-up chaining, writes events and the terminal response. |
+| **Main loop**     | The RPC command dispatch loop. Reads input-stream lines, parses commands, dispatches them, and writes responses for synchronous commands. When it receives a `prompt` command it spawns the prompt worker thread. |
+| **Prompt worker** | A `std::jthread` spawned by the main loop for `prompt` and `invoke_command`-with-prompt. Calls `run_prompt()` (the AI agent loop — provider requests, tool calls, streaming deltas), handles follow-up chaining, and writes events plus the terminal response for the prompt. |
+
+Both threads write to the output stream: the main loop writes
+responses for synchronous commands (e.g. `get_state`, `cancel`,
+`compact`); the worker writes events and the terminal success/error
+response for the prompt request.  Output writes are serialized by
+`RpcOutput::mutex`.
 
 The main loop is single-threaded: while it is blocked inside a
 synchronous command (e.g. `compact`, `context`, `export`), no further
