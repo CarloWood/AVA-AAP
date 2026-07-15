@@ -1,0 +1,1 @@
+Move struct RuntimeSession to its own header src/ava/app/RuntimeSession.h.
