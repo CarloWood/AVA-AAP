@@ -1,0 +1,2 @@
+1. Diagnose host CLI subprocess failures - done: strict root traversal rejects the user-controlled ancestor symlink
+2. Reconsider context-root symlink policy - security boundary clarified: trust root selection, distrust repository-controlled descendants
