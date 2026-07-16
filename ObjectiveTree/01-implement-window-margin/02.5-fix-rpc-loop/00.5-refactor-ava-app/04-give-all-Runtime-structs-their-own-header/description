@@ -1,0 +1,1 @@
+Move all struct's defined in src/ava/app/events.h to their own header too (again same naming convention).

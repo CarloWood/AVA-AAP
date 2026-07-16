@@ -1,0 +1,1 @@
+Also move RuntimeOpenOptions, RuntimePromptState and RuntimeRunOptions from src/ava/app/runtime.h to their own header.
