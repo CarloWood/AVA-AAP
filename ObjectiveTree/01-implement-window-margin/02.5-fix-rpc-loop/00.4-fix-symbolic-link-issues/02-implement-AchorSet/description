@@ -1,0 +1,103 @@
+Implement an AnchorSet type that holds multiple anchor directories (each
+opened as a file descriptor at startup from trusted configuration), and
+refactor all filesystem access paths to resolve a candidate path against
+the full set rather than a single workspace root.
+
+## Motivation
+
+Currently SecureWorkspace (src/ava/tools/secure_workspace.{h,cpp}) supports
+only a single anchor: workspace_dir. ToolContext (src/ava/tools/file_tools.h)
+carries one std::shared_ptr<SecureWorkspace> and one workspace_dir path.
+ToolDispatcher::create_strict (src/ava/agent/tool_dispatcher.cpp:1031)
+opens that single workspace at startup. The permission check
+is_within_workspace (src/ava/permissions/permission.cpp:212) uses
+std::filesystem::weakly_canonical, which resolves symlinks on the
+filesystem — exactly what we are trying to avoid.
+
+The agent needs to write to multiple directories: the project workspace,
+the spill_dir (session_path/spill), session storage, and potentially
+user-configured additional writable directories. Each should be its own
+anchor with independent symlink containment.
+
+## Design
+
+AnchorSet should hold a collection of anchor descriptors. Each anchor is:
+  - An fd opened once at startup via plain openat against a trusted config
+    path (same pattern as open_secure_root in context_loader.cpp:91 and
+    SecureWorkspace::open in secure_workspace.cpp).
+  - A lexical root path for path-matching purposes.
+
+A candidate path is resolved by:
+  1. Lexically normalizing the candidate (no filesystem canonicalization).
+  2. Finding the anchor whose root is a lexical prefix of the candidate.
+  3. Using open_beneath on that anchor's fd for the relative portion.
+
+If no anchor matches, the path is rejected. If multiple anchors match, the
+most specific (longest) prefix wins. Symlinks are followed per-anchor:
+a symlink in anchor A pointing into anchor B is rejected (it escapes A's
+boundary), even though B is also in the set.
+
+## What needs to change
+
+- New AnchorSet type (likely in src/ava/tools/ or src/ava/core/) replacing
+  the single-SecureWorkspace model. May wrap multiple SecureWorkspace
+  instances or refactor SecureWorkspace to hold multiple fds.
+- ToolContext (file_tools.h:102-155): replace workspace_dir +
+  shared_ptr<SecureWorkspace> with shared_ptr<AnchorSet>.
+- ToolDispatcher::create_strict (tool_dispatcher.cpp:1031): open all
+  configured anchors at startup, populate AnchorSet.
+- is_within_workspace (permission.cpp:212): replace weakly_canonical with
+  lexical comparison against the AnchorSet.
+- file_io.cpp write_file_unlocked (line 522): route writes through
+  AnchorSet instead of single secure_workspace.
+- agent_loop.cpp (line 830): wire AnchorSet into ToolContext.
+- Config: add a way to specify additional writable directories at startup
+  (e.g., in OpenOptions or a new config field).
+
+## Constraints
+
+- open_beneath (src/ava/core/open_beneath.{h,cpp}) is the central primitive
+  for all post-startup path resolution. It uses openat2 RESOLVE_BENEATH on
+  Linux 5.6+ (follows non-escaping symlinks, rejects escaping ones with
+  EXDEV) and falls back to an O_NOFOLLOW component walk (rejects ALL
+  symlinks) on older systems.
+- Anchor fds are opened with plain openat at startup from trusted config
+  paths. open_beneath is only for untrusted relative paths on top of an
+  anchor. openat2 RESOLVE_BENEATH rejects absolute symlinks unconditionally
+  (EXDEV), so anchors themselves must be opened directly (see
+  context_loader.cpp:91 comment and SecureWorkspace::open).
+- No weakly_canonical or lexically_canonical for untrusted paths. Only
+  lexical normalization (lexically_normal) is permitted.
+- renameat/unlinkat on final component is safe only when target_name is a
+  single component (ASSERTed in StagedWrite constructor via
+  target_name_.filename() == target_name_).
+- All path/name members in StagedWrite and stage_write use
+  std::filesystem::path, not std::string.
+
+## Already done (prerequisite goal 01-unify-open_beneath)
+
+- open_beneath extracted to ava::core::open_beneath with mode_t parameter.
+- SecureWorkspace::resolve(AllowMissing) uses open_beneath prefix walk
+  (follows non-escaping symlinks, rejects escaping).
+- SecureWorkspace::stage_write uses open_beneath for parent walk, temp
+  file creation, and final-component symlink escape probe.
+- All raw openat calls with AI-influenced paths replaced with open_beneath.
+- lexical_workspace_path does lexical-only validation (no canonicalization).
+- StagedWrite members use std::filesystem::path.
+- Tests: test_secure_workspace_symlink_containment (8 tests covering
+  read/write/resolve through non-escaping and escaping symlinks),
+  test_secure_workspace_symlinked_root.
+- All 79 tests pass.
+
+## Verification
+
+- All existing 79 tests must continue to pass.
+- New tests for multi-anchor scenarios:
+  - Write to anchor A succeeds; write to anchor B succeeds.
+  - Path outside all anchors is rejected.
+  - Symlink in anchor A pointing into anchor B is rejected (cross-anchor
+    escape).
+  - Symlink within anchor A pointing within anchor A is accepted.
+  - is_within_workspace uses lexical comparison, not weakly_canonical.
+- aap-build and aap-test must pass.
+- git diff --check must be clean.

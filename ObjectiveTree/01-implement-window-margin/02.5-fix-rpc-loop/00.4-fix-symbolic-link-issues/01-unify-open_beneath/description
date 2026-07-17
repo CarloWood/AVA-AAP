@@ -1,0 +1,1 @@
+Remove code duplication wrt to open_beneath; put it in ava::core::open_beneath and use it as centeral point in the code to deal with symbolic link security risks.
