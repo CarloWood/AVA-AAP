@@ -1,0 +1,1 @@
+Replace the `std::mutex session_mutex` declared in `run_rpc_loop` with the mutex that is wrapped with the `runtime::session_ts& unlocked_session` that is passed to `run_rpc_loop`.
