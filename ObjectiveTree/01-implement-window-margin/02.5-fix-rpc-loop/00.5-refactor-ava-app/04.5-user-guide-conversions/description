@@ -1,0 +1,1 @@
+Turn selected free functions into member functions of runtime::Session. The function(s) to convert are given by the user as a user-prompt.
