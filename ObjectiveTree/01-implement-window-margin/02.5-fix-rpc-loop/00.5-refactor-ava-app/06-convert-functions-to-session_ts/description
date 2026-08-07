@@ -1,0 +1,1 @@
+Change the `Session&` or `Session const&` parameter of selected functions into `session_ts&` or `session_ts const&` respectively. The function(s) to convert are given by the user.
