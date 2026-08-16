@@ -1,1 +1,39 @@
-Ensure Window margin handling validates or clamps impossible margins, handles zero-margin and stdscr-backed windows, recreates or deletes subwindows safely when margins change, and documents the chosen behavior in the API comments.
+Implement the new terminal::Window: the margin-aware window class from
+this objective's description, built on top of BasicWindow with
+inheritance, so that its member functions do not need to be repeated:
+
+  using InnerWindow = BasicWindow;
+
+  class Window : public InnerWindow        // the writable area inside the margin
+  {
+   private:
+    BasicWindow outer_window_;             // the whole window, including the margin
+    ...
+  };
+
+Whatever you do to a Window you do to its InnerWindow: every member
+function inherited from BasicWindow wraps the writable area, so writes
+(addstr, move, erase, background, ...) automatically stay inside the
+margin and use writable-area coordinates - callers never add margin
+offsets by hand, also not for getyx/getmaxyx/getbegyx and friends. The
+private outer_window_ is the margin-inclusive BasicWindow; the border is
+drawn on it, inside the margin. The margin is immutable: fixed when the
+Window is constructed; changing it means creating a new Window.
+
+A Window without margin creates no ncurses subwindow at all and must
+behave exactly like a BasicWindow (decide how to then have exactly one
+WINDOW* instead of both outer_window_ and an inset base).
+
+Cases to work out here, documenting each chosen answer in the API
+comments:
+
+- Margin larger than the Window: top + bottom >= height or left + right
+  >= width leaves no writable area. BasicWindow::subwin(Margin) already
+  asserts `margin < size`; decide assert (programming error) vs clamp.
+- Windows owned by ncurses itself (stdscr): decide whether the
+  margin-aware Window can wrap those.
+- Destruction order: C++ destroys the members (outer_window_) before
+  the base (the InnerWindow subwindow), which is exactly the wrong way
+  around - the subwindow must be delwin-ed before its parent. The
+  Window destructor must enforce that explicitly (as must any
+  operation that replaces either handle).

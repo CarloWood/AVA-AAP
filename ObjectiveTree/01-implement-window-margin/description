@@ -1,1 +1,26 @@
-Design and implement terminal::Margin support for terminal::Window so callers can reserve top, bottom, left, and right regions that Window write operations never touch, using an ncursesw subwindow internally for the writable area.
+Support drawing a border inside a reserved, immutable Margin, without
+letting that concern grow into the thin ncurses wrapper.
+
+The functionality is split over two classes:
+
+1. terminal::BasicWindow: the current thin wrapper around a single
+   ncurses WINDOW*. It exists so that the rest of the code can use
+   ncurses without including curses.h, and adds no semantics of its own;
+   it keeps doing exactly that under a new name (rename done in goal
+   02.5).
+
+2. terminal::Window: a window that may have a Margin - reserved
+   top/bottom/left/right cell rows/columns (see the drawing in Margin.h)
+   in which its border is drawn - but doesn't have to. Window derives
+   from BasicWindow (spelled `using InnerWindow = BasicWindow;`): every
+   inherited member function operates on the writable area inside the
+   margin, so writes stay inside it without repeating member functions.
+   Additionally Window has a private BasicWindow outer_window_ - the
+   margin-inclusive window the border is drawn on. Internally the
+   writable area is an ncurses subwindow inset by the margin, but that
+   is an implementation detail the API never reveals; without a margin
+   no subwindow is created at all. The margin is immutable: fixed when
+   the Window is created; changing it means creating a new Window.
+
+(The name MarginWindow was considered for class 2 but rejected: a
+Window without a margin is not a "margin window".)

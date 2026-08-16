@@ -1,0 +1,22 @@
+So far terminal::Window is a thin wrapper around a single ncurses WINDOW*:
+it lets the rest of the code use ncurses without including curses.h and
+adds no semantics of its own. Adding the margin/border functionality of
+this objective to it would destroy that thinness. Therefore the
+functionality is split over two classes (see the objective description):
+the thin wrapper keeps its role under the name terminal::BasicWindow
+(decided; other candidates considered: RawWindow, WindowHandle,
+NcursesWindow/CursesWindow - rejected for leaking the library name),
+freeing the name terminal::Window for the new, margin-aware class of
+goal 03, which derives from it (see there).
+
+This goal is the mechanical rename of the thin wrapper to BasicWindow,
+with no behavior change at all:
+
+- Rename the class (files Window.h/Window.cxx and class Window, incl.
+  Window::Impl, -> BasicWindow.h/BasicWindow.cxx and BasicWindow) and
+  update every user: Context (stdscr() and its Window member), Pad (its
+  pad_ member; the pad functions newpad/subpad/prefresh/pnoutrefresh/
+  pechochar stay on the thin wrapper), the experimental linux0x tests,
+  and tests/terminal_paragraph_tests.cpp.
+- Build everything and run the full test suite (aap-test) afterwards;
+  nothing may change behavior.

@@ -1,1 +1,19 @@
-Update terminal::Window internals so write, move, erase, background, and refresh behavior targets an ncursesw subwindow representing the margin-adjusted writable area while preserving border drawing and parent window lifetime safety.
+The mechanism goal for margins: the ability to back a Window with an ncursesw
+subwindow that represents its writable area, without the user-facing API
+revealing that subwindow.
+
+The idea: a window with a border needs all its writes to stay inside that
+border. Doing that coordinate arithmetic at every call site is error-prone,
+so the writable area (the area inside the border/margin) gets its own
+ncursesw WINDOW*, inset in the parent window, and window member functions
+operate on it. To the caller the window remains a single window that
+conceptually includes its border/margin; the margin is immutable (set when
+the window/margin is created) and normal writes never touch it.
+
+What this goal delivered is the subwindow machinery itself: the research
+into which ncurses functions exist for this (subwin/derwin and friends), and
+the Window::subwin/derwin API - including the Margin overloads - with the
+documented rule that subwindows must be destroyed before their parent.
+Giving the (to be renamed, see goal 02.5) window class the margin-aware
+behavior of the new terminal::Window class is what goals 02.5 and 03 are
+about.
