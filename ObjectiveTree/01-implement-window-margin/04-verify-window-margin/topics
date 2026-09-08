@@ -1,2 +1,1 @@
 1. Decide how `Window` should coordinate displaying an independent `Pad` in its writable area - needs discussion
-2. Design a geometric vector allocator using `MemoryPagePool` size classes with heap fallback - needs discussion
