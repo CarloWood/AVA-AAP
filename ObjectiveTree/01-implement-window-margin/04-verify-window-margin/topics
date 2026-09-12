@@ -1,1 +1,2 @@
-1. Decide how `Window` should coordinate displaying an independent `Pad` in its writable area - needs discussion
+1. Design `Window`/frame presentation of an independent `Pad` directly into an interior viewport, without copying through an inner ncurses window - needs discussion
+2. Define incremental editing of `Pad` while keeping its retained layout content and rendered buffer consistent - needs discussion
