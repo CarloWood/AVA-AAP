@@ -1,3 +1,1 @@
-1. Design `Window`/frame presentation of an independent `Pad` directly into an interior viewport, without copying through an inner ncurses window - needs discussion
-2. Define incremental editing of `Pad` while keeping its retained layout content and rendered buffer consistent - needs discussion
-3. Correct terminal teardown ownership and test stream lifetime; verify remaining file-backed `endwin()` behavior - needs work
+1. Define incremental editing of `Pad` while keeping its retained layout content and rendered buffer consistent - needs discussion
