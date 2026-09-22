@@ -1,0 +1,1 @@
+issue-and-guidance.md — Synthesized Ctrl-C race and lost exit-cause trace, explicit signal-wakeup/claiming design, propagation contract, and deterministic tests.

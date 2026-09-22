@@ -1,0 +1,1 @@
+Restore the intended two-signal protection during terminal suspension and resumption by passing SIGINT and SIGTERM as distinct signal numbers to utils::Signal::BlockGuard. Verify that both signals are blocked in the calling thread during the protected operations and that its exact prior mask is restored afterward, without claiming process-wide blocking.

@@ -1,1 +1,8 @@
 1. Define incremental editing of `Pad` while keeping its retained layout content and rendered buffer consistent - needs discussion
+2. Restore the signal lifecycle lost in commit `2cb3d22fb15476e3b` using early reservation, post-initialization activation, explicit consumption, outcome propagation, and normal-flow cleanup. Review found destructor registration failure, missing non-TUI delivery policy, and an active-run synthesized-input exit-reason gap; also review operation/response boundaries formerly gated by rendering - fixes and verification needed
+3. Explain ncurses signal-handler ownership and old/new initialization order; `initscr()` calls `newterm()` - done
+4. Determine whether AVA still needs a `SIGTSTP` handler in `raw()` mode - needs discussion
+5. Establish whether `ava::app::Application` is constructed for RPC, ACP, MCP/LSP writes, provider-selection menus, and external-editor execution - needs analysis
+6. Determine the supervisor monitor thread’s appropriate signal mask, including creation after TUI signal activation - needs discussion
+7. Audit thread-local masking, process-wide dispositions, repeated signals during shutdown, initialization/teardown, and worker-mask inheritance. Review identified unrecovered interrupted rendering writes and the suspend guard’s incorrect signal-number list - fixes and further analysis needed
+8. Establish which supervisor-spawned, Bash, Mermaid, MCP, LSP, and detached-browser child paths construct `ava::app::Application` or a derivative of `ava::core::Application` - needs analysis
