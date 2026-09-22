@@ -12,7 +12,7 @@ Evidence:
 - `tests/core_tests.cpp:340–367`: the runner destroys its Application for `core_mode`, then creates another for later suites.
 - `tests/core_mode_json_permissions_tests.cpp:196–229`: explicit Application lifecycle/death tests.
 
-The user has already replaced the destructor at `src/ava/core/Signals.cpp:28–32` with `utils::Signal::block_and_unregister()` for SIGINT and SIGTERM. Retain this fix. The old duplicate-registration report must not be presented as an unfixed defect in this updated source.
+The destructor at `src/ava/core/Signals.cpp:28–32` now calls `utils::Signal::block_and_unregister()` for SIGINT and SIGTERM. This change fixes the duplicate-registration problem described above. Retain it; the remaining work in this goal is to verify teardown and supported reconstruction, including isolation of recorded signal state between Application lifetimes.
 
 ## Correct meaning of teardown
 
