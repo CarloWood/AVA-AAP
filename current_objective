@@ -1,1 +1,1 @@
-ObjectiveTree/03-fix-posix-signal-handling/01-unregister-signals-on-teardown
+ObjectiveTree/03-fix-posix-signal-handling/02-restore-non-tui-signal-delivery
