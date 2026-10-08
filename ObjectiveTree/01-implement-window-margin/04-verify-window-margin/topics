@@ -1,1 +1,4 @@
 1. Define incremental editing of `Pad` while keeping its retained layout content and rendered buffer consistent - needs discussion
+2. Queue special events during paste; afterward handle mouse/resize normally, but discard the paste if any other special key occurred - policy decided; implementation pending
+3. Replace existing TUI/backend connections with the shared frontend API in small steps - frontend object and entry point established; further separation pending
+4. Split TUI-specific application code into `app/tui/`, extracting genuinely shared code; keep TUI and GUI settings in separate files - approach agreed; refactoring pending
