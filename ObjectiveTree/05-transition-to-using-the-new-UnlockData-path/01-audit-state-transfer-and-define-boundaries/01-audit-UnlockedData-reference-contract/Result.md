@@ -2,6 +2,14 @@ These findings describe the **current working tree**, including the extracted `M
 
 # Reference-contract audit
 
+## Scope after ownership clarification
+
+The locking and refresh contract below applies only to backend-owned state that is or may become visible. It is not a universal frontend state-management mechanism. Priorities include the active agent receiving the next submission, model/execution variant/provider, backend directories (especially workspace root), and used tokens. This reference audit establishes the existing model/stats mechanism; it does not establish the authoritative active-agent selection or all directory semantics, which the remaining audits must investigate.
+
+Pure appearance/interaction state belongs in src/ava/tui, src/ava/app/tui or another tui-named file, accessed only by the tui-thread without locking or UnlockedData. Themes, bindings, previews, layout, local selector controls and drafts must not be promoted to canonical backend domains. Draft text becomes visible to the backend only when Enter submits a std::string. Persistence alone does not make a UI preference backend state. Distinguish execution reasoning from its display and attachment authority from image rendering preferences.
+
+Session history is backend-owned but too large for whole-history copying through these projections. Preserve existing history/transcript/streaming and associated historical-content transport for this iteration, as a precisely inventoried exception. A future list/vector-like history access API covering source attribution, reasoning and timing requires a separate design. No journal, collection lifetime scheme or history replacement is selected here. The exception does not apply to unrelated current-agent/model/directory/token facts.
+
 ## 1. Ownership and locking
 
 The current ownership split matches the intended design:
@@ -109,7 +117,7 @@ The canonical mutex protects the values. The atomic dirty flag only signals inva
 
 **Important limitation:** this is not delivery of every mutation. Multiple changes can coalesce, including a change followed by a return to the original value before any refresh.
 
-That is appropriate for ordinary displayed state, but insufficient by itself for ordered events or exactly-once transition effects.
+That is appropriate for coalescible displayed backend state, but insufficient by itself for ordered events or exactly-once transition effects. This limitation does not authorize replacing the deferred history/streaming path in this iteration.
 
 ## 6. Per-output `changed` flags are independent—but not per-consumer
 
@@ -212,7 +220,8 @@ The remaining audits need to resolve:
 2. **Consumption:** Which outputs have multiple consumers, and who owns each change notification?
 3. **Coherence:** Which domains require a shared session identity/revision rather than eventual independent refresh?
 4. **Scheduling:** How do asynchronous canonical updates cause an idle frontend to refresh?
-5. **Protocol semantics:** Which information cannot safely coalesce?
-6. **Boundary cleanup:** Which neutral declarations and bindings eliminate Session dependencies without moving canonical ownership into the UI?
+5. **Protocol semantics:** Which in-scope information cannot safely coalesce, and which existing historical-content paths must remain intact under the explicit deferral?
+6. **Boundary cleanup:** Which neutral declarations and bindings eliminate Session dependencies without moving backend authority into the UI, while moving UI-only responsibilities entirely into tui-thread-local owners?
+7. **Missing backend facts:** Where are the active agent receiving the next prompt and backend directories/workspace root actually owned and changed? Verify those owners before proposing their projections.
 
 **Conclusion:** the reference mechanism is sound as a narrowly scoped, stable-lifetime, latest-state projection pattern. The migration must explicitly preserve—or strengthen—its lifetime, consumer and coherence contracts rather than assuming atomic dirtiness solves those concerns.
