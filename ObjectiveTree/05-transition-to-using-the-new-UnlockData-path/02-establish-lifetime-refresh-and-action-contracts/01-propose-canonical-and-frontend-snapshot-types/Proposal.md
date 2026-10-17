@@ -73,15 +73,9 @@ class ModelSelection {
 
 Existing accessors stay `refresh_model()`, `refresh_provider()`, `refresh_reasoning()` returning RefreshResult<string const&>, and `context_window_tokens_refresh()` returning RefreshResult<optional<long long>>. Existing naming is retained rather than unrelated renaming.
 
-For the later scope selector, candidate addition **requiring approval with that slice**:
+**Review decision: no scoped_model_cycle snapshot, changed flag or refresh accessor is added.** The /models and /scoped-models lists are interactive popups, deferred with the other interactions. The current scoped selector shows the complete available-model list even when canonical scope is nullopt; its heading does not make that list passive always-visible state. Preserve its existing on-demand view/actions, including scope toggle/reorder/save, without an eager frontend scope subscription.
 
-```cpp
-std::optional<std::vector<std::string>> scoped_model_cycle_snapshot_ = std::nullopt;
-bool scoped_model_cycle_changed_{true};
-RefreshResult<std::optional<std::vector<std::string>> const&> scoped_model_cycle_refresh();
-```
-
-This copies the existing optional vector (absence retains existing no-explicit-scope semantics). It is not a new writable scope. Caller is the local scope-selector controller, not SessionStats. Catalog availability still requires the later catalog decision; this addition alone does not implement a selector.
+Canonical scoped_model_cycle remains unchanged with its existing optional semantics. This refactor neither expands nullopt into a stored model list nor removes the optional; that is a separate backend/UI behavior decision. The existing ModelSelection projection continues copying only model and reasoning. When a popup action actually changes the selected model/reasoning, those current displayed values still refresh through the existing canonical notification path.
 
 ## 2. Existing SessionStats — keep canonical statistics and whole snapshot
 
@@ -507,7 +501,7 @@ The earlier plan included catalogs, safe resource overview and todos. I do not r
 | Domain / current source | Concrete choice to resolve | Proposed ownership direction / blocked slice |
 |---|---|---|
 | Safe overview resources: ResolvedPromptState context_sources/freshness_sources; startup_overview.cpp safe filtering/aggregation | Copy which already-safe facts versus store a backend-prepared safe resource summary? Exact group/name/count/lower-bound fields and limits must be specified without copying source paths or prompt-derived text. Wrapping ResolvedPromptState does not authorize copying its vectors | Backend owns resource facts/filtering; frontend owns overview theme/key hints/formatting. /04 resource-overview portion blocked pending supplement; mode/count proposal above can proceed independently |
-| Available model/provider catalog | Session current selection is authoritative, but registry discovery/provider availability currently occurs in selector builder. Choose the canonical owner/cache and exact model/availability record fields; no second mutable selected model | /05 model-list portion blocked. Scope-vector snapshot addition in section 1 is a concrete candidate, not a complete catalog |
+| Available model/provider catalog and scoped cycling list | Explicitly deferred interactive /models and /scoped-models popups. Keep existing discovery, list delivery and scope actions; no new canonical catalog/scope snapshot or refresh accessor for these popups | Not a type-proposal blocker for this refactor. Current selected model/provider/reasoning remains in scope via existing ModelSelection, independently of popup list delivery |
 | Slash/workspace completion catalogs: ApplicationCatalogCache | Existing SlashCommandCatalogItem/FileReferenceCatalogItem may carry UI hotkeys/formatting; exact records after separating local commands/hints are not yet approved. Preserve absent/empty/error and generation semantics without a generic catalog template invented on the fly | Backend factual discovery, frontend-only commands/hints/query; /05 completion portion blocked pending record declarations and bounded-copy review |
 | Session selector: ApplicationCatalogCache::session_tree | SessionTreeIndex/SessionSummary can contain backend authority-related data. Select exact safe metadata and identity fields; determine acceptable bounded copy cost without designing history access | /05 session-list portion blocked. Do not wrap/copy entire ApplicationCatalogCache or SessionTreeIndex merely to eliminate SelectListView |
 | Todos: latest committed todowrite state | Choose reusing agent::TodoItem value records versus a session-owned neutral todo value declaration, and whether absence/load error remains the current empty-list behavior or has explicit observation state. Specify publication owner replacing hydration and any overlap with retained live events | /05 todo portion blocked; no second writable todo history. Existing history/event delivery stays intact until that reviewed ordinary projection can be fed coherently |

@@ -102,7 +102,8 @@ The following accounts for every TuiRuntimeOptions callback (runtime.h:320–389
 | on_attach_image, on_paste_clipboard_image, on_load_image_attachment, on_external_editor | D correlated services preserved; U draft/preview remains local. |
 | on_toggle_mode, on_cycle_reasoning, on_cycle_model | A validated backend mutations plus B projection refresh. /03,/05,/08 remove returned current-state/bulk bundles; preserve success/unchanged/error/feedback. |
 | on_reload_key_bindings, on_reload_display_settings, on_maybe_reload_display_settings | U local configuration/reload ownership in /04, not backend state requests. Preserve explicit applied/unchanged/error and last-good behavior; no generation protocol needed for single-thread-local state. |
-| model_selector_view, reasoning_selector_view, scoped_model_selector_view, session_selector_view | /05 ordinary B facts -> U local selectors. Remove backend-built replacement view contract. Preserve no-choice/default/current/disabled distinctions. |
+| model_selector_view, scoped_model_selector_view | D interactive /models and /scoped-models lists, explicitly deferred by subsequent user review. Preserve existing list delivery/actions; no scope snapshot/change flag/refresh accessor or eager model catalog. Current model/provider/reasoning display still uses existing B projection. |
+| reasoning_selector_view, session_selector_view | Preserve no-choice/default/current/disabled distinctions. Do not infer approval of a popup redesign from passive-state migration; any popup-specific restructuring requires its own reviewed scope. Ordinary committed selection/identity facts can refresh independently. |
 | list_subagents, inspect_subagent, cancel_subagent, promote_subagent | D complete existing exchange/status/content preserved; inspector focus never defines primary selection. |
 | on_open_fork_user_turn_selector, on_open_copy_user_turn_selector, on_read_user_turn_text | D historical-content/picker retrieval preserved; copied draft remains U. |
 | on_session_selector_sort_cycle, on_session_selector_named_filter_toggle, on_session_selector_path_display_toggle, on_session_selector_archived_filter_toggle, on_session_selector_label_timestamp_toggle | U selector controls in /05; remove callback round-trips that simply rebuild backend-owned views. Backend catalog facts remain validated. |
@@ -113,8 +114,8 @@ The following accounts for every TuiRuntimeOptions callback (runtime.h:320–389
 | on_settings_selected | Split in /04: B trust/backend changes through existing validated actions; U theme/render/binding/close-view actions stay local; no bulk snapshot return. |
 | on_model_selected, on_reasoning_selected | A backend mutations + existing B projection; /03,/05,/08 remove bulk snapshot result and duplicated refresh work. |
 | on_fork_user_turn_selected | A existing backend fork action and B committed transition refresh; preserve D historical picker. Ancillary catalog failure after mutation remains warning, not stale old identity. |
-| on_scoped_model_toggled, on_scoped_model_enable_all, on_scoped_model_clear_all, on_scoped_model_toggle_provider, on_scoped_model_reorder | /05 remove previous SelectListView input and replacement view output. Validated identifiers/action change B scope; U query/highlight remains local. |
-| on_scoped_model_save | A existing persistence/feedback; publish changed B scope as appropriate. |
+| on_scoped_model_toggled, on_scoped_model_enable_all, on_scoped_model_clear_all, on_scoped_model_toggle_provider, on_scoped_model_reorder | D existing scoped-model popup actions and returned views retained. No new scope projection/publication path in this refactor; backend canonical optional remains unchanged. |
+| on_scoped_model_save | D existing popup persistence/feedback retained; no frontend scope subscription added. |
 | on_before_tui_shutdown | D existing cleanup callback preserved; no automatic lifecycle framework. |
 
 Nested result contracts:
