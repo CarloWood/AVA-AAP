@@ -170,8 +170,8 @@ Proposed frontend value group: `SelectedAgentMetadata`. It contains copied metad
 namespace ava::app::frontend {
 struct SelectedAgentMetadata {
   std::string name;
-  ava::agent::AgentDefinitionProvenance provenance = ava::agent::AgentDefinitionProvenance::Unknown;
-  ava::agent::AgentToolPreset tool_preset = ava::agent::AgentToolPreset::Inherit;
+  ava::agent::AgentDefinitionProvenance provenance;
+  ava::agent::AgentToolPreset tool_preset;
   AVA_DEBUG_PRINT_MEMBERS_OPT_OUT
 };
 class AgentSelection {
@@ -190,6 +190,8 @@ app::frontend::AgentSelection agent_selection_;
 ```
 
 This is a grouped selected-field copy from one locked AgentSelection read, not a second canonical agent selection. When selected_primary_agent is present, selected_agent_snapshot_ contains its exact name, provenance and tool_preset. Otherwise the whole group is absent under current backend semantics; the fields cannot have independent absence. Do not copy requested_primary_agent into the frontend: it is retained backend configuration intent, not the selected next-prompt agent label. No existing direct requested-agent TUI display was located.
+
+Construct an engaged SelectedAgentMetadata with all three fields explicitly copied from the canonical definition; do not default-construct an incomplete record and fill it later. There is no frontend Unknown/Inherit fallback for a missing definition: the enclosing optional represents that absence. The current production primary-agent loader assigns Global or Project provenance during discovery (agent_config.cpp:382–400), and resolution returns that definition unchanged (414–430). Unknown exists in the backend enum/default-constructed AgentDefinition, and manually supplied definitions can carry it, but it is not an additional expected missing-information case for a normally loaded selected primary agent. Preserve any actual canonical value rather than inventing provenance in the frontend.
 
 Do not copy agent system_prompt, source path, description or iteration policy into frontend just to show identity. Those fields remain in the canonical selected definition for backend behavior; a future visible field can add an explicit safe snapshot member. Do not expose the full AgentDefinition through a frontend accessor.
 
