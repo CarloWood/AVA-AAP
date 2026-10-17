@@ -164,15 +164,18 @@ Proposed backend storage: `AgentSelection_ts agent_selection_` in Session_aggreg
 
 AgentDefinition is the existing type in agent/agent_config.h with name, description, system_prompt, tool_preset, max_tool_iterations, hidden, provenance and path. It has no model/provider member. Keep that existing definition and its safety-oriented printer. Do not wrap it alone: requested intent and effective selection form one backend group, especially when trust causes an effective selection to disappear.
 
-Proposed frontend class and value members:
+Proposed frontend value group: `EffectiveAgentMetadata`. It is a small projection of an effective named AgentDefinition, not the definition's prompt text and not a popup selection. Use one optional for the group, not independently optional fields. The member name identifies snapshot ownership, so individual fields do not need the `_snapshot_` suffix.
 
 ```cpp
 namespace ava::app::frontend {
+struct EffectiveAgentMetadata {
+  std::string name;
+  ava::agent::AgentDefinitionProvenance provenance = ava::agent::AgentDefinitionProvenance::Unknown;
+  ava::agent::AgentToolPreset tool_preset = ava::agent::AgentToolPreset::Inherit;
+  AVA_DEBUG_PRINT_MEMBERS_OPT_OUT
+};
 class AgentSelection {
-  std::optional<std::string> requested_primary_agent_snapshot_ = std::nullopt;
-  std::optional<std::string> selected_name_snapshot_ = std::nullopt;
-  std::optional<ava::agent::AgentDefinitionProvenance> provenance_snapshot_ = std::nullopt;
-  std::optional<ava::agent::AgentToolPreset> tool_preset_snapshot_ = std::nullopt;
+  std::optional<EffectiveAgentMetadata> effective_agent_snapshot_;
   DisplayString agent_;
   DisplayString provenance_;
   DisplayString tool_preset_;
@@ -186,16 +189,11 @@ class AgentSelection {
 app::frontend::AgentSelection agent_selection_;
 ```
 
-These are selected-field copies from one locked AgentSelection read, not a second canonical AgentIdentity. Mapping:
-
-* requested_primary_agent_snapshot_ <- canonical requested_primary_agent.
-* selected_name_snapshot_ <- selected_primary_agent->name if present, otherwise nullopt.
-* provenance_snapshot_ <- selected_primary_agent->provenance with the same presence rule.
-* tool_preset_snapshot_ <- selected_primary_agent->tool_preset with the same presence rule.
+This is a grouped selected-field copy from one locked AgentSelection read, not a second canonical agent selection. When selected_primary_agent is present, effective_agent_snapshot_ contains its exact name, provenance and tool_preset. Otherwise the whole group is absent under current backend semantics; the fields cannot have independent absence. Do not copy requested_primary_agent into the frontend: it is retained backend configuration intent, not the effective next-prompt agent label. No existing direct requested-agent TUI display was located.
 
 Do not copy agent system_prompt, source path, description or iteration policy into frontend just to show identity. Those fields remain in the canonical selected definition for backend behavior; a future visible field can add an explicit safe snapshot member. Do not expose the full AgentDefinition through a frontend accessor.
 
-Proposed display semantics for review: no request/no resolved definition -> "default" (a display state, not a fabricated agent named default); requested but no effective definition -> "unavailable: <requested name>"; resolved -> its name. Unknown provenance remains the actual Unknown enum, not absence. Distinguish configured tool preset from effective permission/tool visibility: do not label the preset as the complete effective permission policy.
+User requirement: the composer should display a truthful known effective-agent identity before Enter, including ordinary operation without --agent. Current backend absence means no explicit named AgentDefinition, NOT no agent execution: interactive.cpp:218–246 still submits through with_provider_runtime/run_prompt using the session model and composed system prompt. requested_primary_agent is not filled in by that submission. Resolve the default execution identity explicitly before implementing this display: either the backend supplies a genuine default-agent metadata record (then the group can become nonoptional after initialization), or the user approves a display label describing the existing unnamed/default runtime. Do not fabricate a named AgentDefinition, report the prompt as undeliverable, or add an agent-selection popup merely because the optional definition is absent. The new grouped optional describes current source availability, not a claim that the final visible identity should be unknown. Unknown provenance is an enum value, not partial absence; tool_preset remains definition configuration, not complete effective permission authority.
 
 Writers: construction after primary resolution; command_trust's resolution/clearing paths; apply_trust_prompt_state_and_refresh; Session replacement. Detached state copies this canonical value into a fresh unregistered wrapper. Model switches and reload keep the already-resolved definition under current semantics. Session methods that currently return const references into InvocationInputs must become guard/value-based access; returning an unlocked reference from a temporary read guard is forbidden.
 
