@@ -305,20 +305,16 @@ class PromptMetadata {
   std::optional<std::size_t> context_source_count_snapshot_ = std::nullopt;
   DisplayString mode_;
   DisplayString context_source_count_;
-  bool mode_value_changed_{true};
-  bool context_source_count_value_changed_{true};
  public:
   RefreshResult<std::string const&> mode_refresh();
   RefreshResult<std::string const&> context_source_count_refresh();
-  RefreshResult<ava::agent::Mode> mode_value_refresh();
-  RefreshResult<std::optional<std::size_t>> context_source_count_value_refresh();
 };
 }
 // TuiFrontEnd:
 app::frontend::PromptMetadata prompt_metadata_;
 ```
 
-mode_snapshot_ copies canonical mode. context_source_count_snapshot_ is a **derived scalar observation**, computed as canonical context_sources.size() under the same guard, not a canonical count field. Nullopt means not yet observed; an initialized empty vector yields known zero. Full prompt strings, source paths, freshness arrays and base-prompt bodies are NOT copied. No history copy is involved. Structured values are consumed once by the local runtime presentation controller, strings by its rendering refresh pass.
+mode_snapshot_ copies canonical mode. context_source_count_snapshot_ is a **derived scalar observation**, computed as canonical context_sources.size() under the same guard, not a canonical count field. Nullopt means not yet observed; an initialized empty vector yields known zero. Full prompt strings, source paths, freshness arrays and base-prompt bodies are NOT copied. No history copy is involved. Consumers receive the formatted mode and decimal count strings. No other projection has an established cross-projection formatting dependency on either typed value, so no mode_value_refresh(), context_source_count_value_refresh() or independent typed-value change flags are proposed. Do not add typed accessors for hypothetical controller convenience.
 
 All writers must go through one backend bundle publication: construction, apply_prompt_state and the direct replacement currently in switch_model (Session.cpp:993–1000,1059–1064). Avoid implementing mode publication separately in every command. Existing prompt getters currently relying on the Session lock need explicit guard/value access changes. This is a real cost of this proposal and belongs in /05/03, not the foundation slice.
 
@@ -419,18 +415,16 @@ class SessionIdentity {
   runtime::SessionIdentity identity_snapshot_;
   DisplayString session_id_;
   DisplayString session_path_;
-  bool identity_changed_{true};
  public:
   RefreshResult<std::string const&> session_id_refresh();
   RefreshResult<std::string const&> session_path_refresh();
-  RefreshResult<runtime::SessionIdentity const&> identity_refresh();
 };
 }
 // TuiFrontEnd:
 app::frontend::SessionIdentity session_identity_;
 ```
 
-The whole value is copied; the local runtime transition controller owns identity_refresh's change consumption. It checks identity using existing semantics and calls one local transition-reset helper. Renderers use the separate string flags. No canonical draft, grants, transcript or selector state in this object. No new transition generation is proposed absent a demonstrated concurrency requirement.
+The whole value is copied internally; the projection exposes only session_id_refresh() and session_path_refresh() display strings. No other projection has an established cross-projection formatting dependency on the complete SessionIdentity, so no identity_refresh() or aggregate change flag is proposed. The previously suggested typed accessor was for controller transition detection, not display-string composition, and is withdrawn. Preserve existing transition behavior while removing old ordinary-state transport; decide its minimal control integration separately rather than using a speculative typed projection accessor or treating display text/its consumed changed flag as backend transition authority. No canonical draft, grants, transcript or selector state belongs in this object, and no new transition generation is proposed.
 
 **Decision required:** approve this narrowly derived identity observation, or prefer a different authoritative store-identity factoring. Unlike AgentSelection/Directories this is not simply moving existing fields. Keeping a general runtime snapshot solely for identity is not the desired final solution, but wrapping the store/history is not proposed. /05/03 implements only the chosen approach.
 
