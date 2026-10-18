@@ -152,19 +152,18 @@ TuiFrontEnd member remains `frontend::SessionStats session_stats_`. `token_count
 ```cpp
 namespace ava::app::runtime {
 struct AgentSelection {
-  std::optional<std::string> requested_primary_agent = std::nullopt;
-  std::optional<ava::agent::AgentDefinition> selected_primary_agent = std::nullopt;
+  ava::agent::AgentDefinition selected_primary_agent;
   AVA_DEBUG_PRINT_MEMBERS_OPT_OUT
 };
 using AgentSelection_ts = UnlockedData<AgentSelection>;
 }
 ```
 
-Proposed backend storage: `AgentSelection_ts agent_selection_` in Session_aggregate_base. **Remove** the two corresponding members from InvocationInputs. Backend resolution/dispatch access the wrapped selection, not retained originals. OpenContext and transient resolution candidates may still carry input copies; they are not live competing authorities.
+Proposed backend storage: `AgentSelection_ts agent_selection_` in Session_aggregate_base. Remove selected_primary_agent from InvocationInputs and make this nonoptional wrapped definition the actual selection used by backend execution. requested_primary_agent remains optional invocation/configuration intent in InvocationInputs/OpenContext; it is not the current selection and is not copied into the frontend. Its absence means resolve the configured/default agent, not publish an absent selected agent. No second writable selected definition remains elsewhere.
 
-AgentDefinition is the existing type in agent/agent_config.h with name, description, system_prompt, tool_preset, max_tool_iterations, hidden, provenance and path. It has no model/provider member. Keep that existing definition and its safety-oriented printer. Do not wrap it alone: requested intent and selected primary agent form one backend group, especially when trust causes the selected definition to be cleared.
+AgentDefinition is the existing type in agent/agent_config.h with name, description, system_prompt, tool_preset, max_tool_iterations, hidden, provenance and path. It has no model/provider member. Keep that existing definition and its safety-oriented printer. Resolve the selected definition during backend initialization after command-line/configuration processing, and construct/publish a valid AgentSelection before the composer permits submission. Without --agent, resolve the default there. Do not postpone selection until Enter, create only a display label, or use an empty default-constructed AgentDefinition as an initialized selection.
 
-Proposed frontend value group: `SelectedAgentMetadata`. It contains copied metadata from the backend's selected_primary_agent, not the definition's prompt text or a popup's highlighted candidate. Preserve the backend's selected/selection terminology for these copies; any future terminology change must be project-wide rather than frontend-only. Use one optional for the group, not independently optional fields. The member name identifies snapshot ownership, so individual fields do not need the `_snapshot_` suffix.
+Proposed frontend value group: `SelectedAgentMetadata`. It contains copied metadata from the backend's selected_primary_agent, not the definition's prompt text or a popup's highlighted candidate. Preserve the backend's selected/selection terminology for these copies; any future terminology change must be project-wide rather than frontend-only. The group is nonoptional because an initialized backend has a selected agent. The member name identifies snapshot ownership, so individual fields do not need the `_snapshot_` suffix.
 
 ```cpp
 namespace ava::app::frontend {
@@ -175,7 +174,7 @@ struct SelectedAgentMetadata {
   AVA_DEBUG_PRINT_MEMBERS_OPT_OUT
 };
 class AgentSelection {
-  std::optional<SelectedAgentMetadata> selected_agent_snapshot_;
+  SelectedAgentMetadata selected_agent_snapshot_;
   DisplayString agent_;
   DisplayString provenance_;
   DisplayString tool_preset_;
@@ -189,15 +188,15 @@ class AgentSelection {
 app::frontend::AgentSelection agent_selection_;
 ```
 
-This is a grouped selected-field copy from one locked AgentSelection read, not a second canonical agent selection. When selected_primary_agent is present, selected_agent_snapshot_ contains its exact name, provenance and tool_preset. Otherwise the whole group is absent under current backend semantics; the fields cannot have independent absence. Do not copy requested_primary_agent into the frontend: it is retained backend configuration intent, not the selected next-prompt agent label. No existing direct requested-agent TUI display was located.
+This is a grouped selected-field copy from one locked AgentSelection read: name, provenance and tool_preset are copied exactly from selected_primary_agent, including when that agent was selected by default rather than by --agent. requested_primary_agent is not exposed. Initialization/first refresh must populate the snapshot before any display/access; pre-initialization is not modeled as an optional ordinary state. No existing direct requested-agent TUI display was located.
 
-Construct an engaged SelectedAgentMetadata with all three fields explicitly copied from the canonical definition; do not default-construct an incomplete record and fill it later. There is no frontend Unknown/Inherit fallback for a missing definition: the enclosing optional represents that absence. The current production primary-agent loader assigns Global or Project provenance during discovery (agent_config.cpp:382–400), and resolution returns that definition unchanged (414–430). Unknown exists in the backend enum/default-constructed AgentDefinition, and manually supplied definitions can carry it, but it is not an additional expected missing-information case for a normally loaded selected primary agent. Preserve any actual canonical value rather than inventing provenance in the frontend.
+Populate all three metadata fields together before their use. There is no frontend Unknown/Inherit fallback for a missing selected definition. The current file loader assigns Global or Project provenance; the chosen default must carry its actual provenance/preset as well. Preserve backend values, and do not invent them in the frontend. A default implemented by the backend must be a real execution definition, not solely a metadata record.
 
 Do not copy agent system_prompt, source path, description or iteration policy into frontend just to show identity. Those fields remain in the canonical selected definition for backend behavior; a future visible field can add an explicit safe snapshot member. Do not expose the full AgentDefinition through a frontend accessor.
 
-User requirement: the composer should display a truthful known selected-agent identity before Enter, including ordinary operation without --agent. Current backend absence means no explicit named AgentDefinition, NOT no agent execution: interactive.cpp:218–246 still submits through with_provider_runtime/run_prompt using the session model and composed system prompt. requested_primary_agent is not filled in by that submission. Resolve the default execution identity explicitly before implementing this display: either the backend supplies a genuine default-agent metadata record (then the group can become nonoptional after initialization), or the user approves a display label describing the existing unnamed/default runtime. Do not fabricate a named AgentDefinition, report the prompt as undeliverable, or add an agent-selection popup merely because the optional definition is absent. The new grouped optional describes current source availability, not a claim that the final visible identity should be unknown. Unknown provenance is an enum value, not partial absence; tool_preset remains definition configuration, not complete effective permission authority.
+User decision: the selected agent is always known before the composer accepts a submission. This intentionally changes the old representation where no --agent meant an absent additional named definition. Investigate existing default configuration/prompt selection to resolve its real definition early; do not assume a default-name setting exists without checking. If a concrete default name/configuration policy is missing, present that narrow policy choice before coding it, not a renewed optional-selection design. Keep prompt composition correct: normal/default instructions must not be appended twice merely to introduce the explicit definition. Invalid explicit configuration remains a backend resolution error; do not publish an unusable selection and rely on UI guessing. Tool preset still describes definition configuration, not complete permission authority.
 
-Writers: construction after primary resolution; command_trust's resolution/clearing paths; apply_trust_prompt_state_and_refresh; Session replacement. Detached state copies this canonical value into a fresh unregistered wrapper. Model switches and reload keep the already-resolved definition under current semantics. Session methods that currently return const references into InvocationInputs must become guard/value-based access; returning an unlocked reference from a temporary read guard is forbidden.
+Writers: construction after explicit/default primary resolution; trust re-resolution; apply_trust_prompt_state_and_refresh; Session replacement. Paths that previously cleared a forbidden/unavailable definition must now resolve an allowed default or fail the relevant operation explicitly, never leave a submit-ready backend with no selected agent. Do not bypass trust restrictions to maintain the invariant. Detached state copies the selected value into a fresh unregistered wrapper. Model switches/reload retain the selected definition unless backend policy actually changes it. Session accessors must use guard/value-based access; no references escaping temporary guards. Enter reads the already-selected canonical definition, rather than selecting a default as part of submission.
 
 **Grouping decision for approval:** AgentSelection remains separate from execution tool_visibility and resolved prompt state. Existing Session-level mutation coordinates them. Do not promise atomic frontend observation across those separate domains; the current agent display needs identity, not a new transaction framework. If user prefers a broader backend execution-selection aggregate, review it before adding fields.
 
@@ -279,7 +278,9 @@ Remove TuiRuntimeStateSnapshot::git_branch and the duplicate initial TuiRuntimeO
 
 ## 5. Prompt metadata: recommended wrapper around the EXISTING backend bundle
 
-Mode and context-source metadata currently belong to ResolvedPromptState, alongside assembled prompt strings. A separate writable Mode or ContextCount object would duplicate authority. My preferred candidate wraps the existing bundle but copies only small relevant values to frontend:
+**User decision: option 3 is selected.** Nest PromptModeAndContextSources_ts inside ResolvedPromptState. There is exactly one backend mode and context_sources vector; the frontend copies mode and vector size only. Options 1 and 2 below are rejected alternatives retained for reference, not implementation instructions. This decision approves this type arrangement, not the entire proposal or the start of coding.
+
+**Rejected option 1 (reference only): wrap the complete existing bundle.**
 
 ```cpp
 namespace ava::app::runtime {
@@ -298,11 +299,62 @@ using ResolvedPromptState_ts = UnlockedData<ResolvedPromptState>;
 
 Fields above match the existing structure in Session.h:91–100; the intentional proposed change is its wrapper and debug opt-out, not extra prompt copies. Replace `ResolvedPromptState resolved_prompt_state_` with `ResolvedPromptState_ts resolved_prompt_state_`. Keep transient PromptState returned by load_runtime_prompt_state unchanged.
 
+**Rejected option 2 (reference only): move the observed fields to a separately wrapped aggregate member.**
+
+```cpp
+namespace ava::app::runtime {
+struct PromptModeAndContextSources {
+  ava::agent::Mode mode = ava::agent::Mode::Build;
+  std::vector<ContextSourceMetadata> context_sources;
+  AVA_DEBUG_PRINT_MEMBERS_OPT_OUT
+};
+using PromptModeAndContextSources_ts = UnlockedData<PromptModeAndContextSources>;
+
+struct ResolvedPromptState {
+  BasePromptMetadata base_prompt;
+  std::vector<FreshnessSourceMetadata> freshness_sources;
+  std::string system_prompt;
+  std::string ambient_extension_free_system_prompt;
+  AVA_DEBUG_PRINT_MEMBERS_OPT_OUT
+};
+// Session_aggregate_base members:
+// ResolvedPromptState resolved_prompt_state_;
+// PromptModeAndContextSources_ts mode_and_context_sources_;
+}
+```
+
+This alternative would remove mode and context_sources from ResolvedPromptState and keep the wrapper beside it. It is not selected; use the nested layout below instead.
+
+**Selected option 3: keep the grouping, nest the wrapped observed fields.**
+
+```cpp
+namespace ava::app::runtime {
+struct PromptModeAndContextSources {
+  ava::agent::Mode mode = ava::agent::Mode::Build;
+  std::vector<ContextSourceMetadata> context_sources;
+  AVA_DEBUG_PRINT_MEMBERS_OPT_OUT
+};
+using PromptModeAndContextSources_ts = UnlockedData<PromptModeAndContextSources>;
+struct ResolvedPromptState {
+  PromptModeAndContextSources_ts mode_and_context_sources;
+  BasePromptMetadata base_prompt;
+  std::vector<FreshnessSourceMetadata> freshness_sources;
+  std::string system_prompt;
+  std::string ambient_extension_free_system_prompt;
+  AVA_DEBUG_PRINT_MEMBERS_OPT_OUT
+};
+}
+```
+
+Session_aggregate_base retains its unwrapped resolved_prompt_state_ member, with the nested canonical object's final address registered. Assignment-based updates must preserve that registered address; do not reconstruct/move-construct a registered nested object. Option 3 keeps conceptual prompt-state grouping while avoiding wrapping prompt strings, and needs the same guarded access for mode/context_sources as option 2.
+
+**Identical frontend value shape for all three options:**
+
 ```cpp
 namespace ava::app::frontend {
 class PromptMetadata {
   ava::agent::Mode mode_snapshot_ = ava::agent::Mode::Build;
-  std::optional<std::size_t> context_source_count_snapshot_ = std::nullopt;
+  std::size_t context_source_count_snapshot_ = 0;
   DisplayString mode_;
   DisplayString context_source_count_;
  public:
@@ -314,11 +366,11 @@ class PromptMetadata {
 app::frontend::PromptMetadata prompt_metadata_;
 ```
 
-mode_snapshot_ copies canonical mode. context_source_count_snapshot_ is a **derived scalar observation**, computed as canonical context_sources.size() under the same guard, not a canonical count field. Nullopt means not yet observed; an initialized empty vector yields known zero. Full prompt strings, source paths, freshness arrays and base-prompt bodies are NOT copied. No history copy is involved. Consumers receive the formatted mode and decimal count strings. No other projection has an established cross-projection formatting dependency on either typed value, so no mode_value_refresh(), context_source_count_value_refresh() or independent typed-value change flags are proposed. Do not add typed accessors for hypothetical controller convenience.
+mode_snapshot_ copies the single canonical mode. context_source_count_snapshot_ copies the result of canonical context_sources.size() under the same guard; it is frontend derived state, not a second backend count. Initialization/first refresh precedes display; an empty vector yields known zero, not unknown. Full context vectors, prompt strings, source paths, freshness arrays and base-prompt bodies are NOT copied. Consumers receive only formatted mode and decimal count strings. No typed value accessors or extra consumption flags are proposed.
 
-All writers must go through one backend bundle publication: construction, apply_prompt_state and the direct replacement currently in switch_model (Session.cpp:993–1000,1059–1064). Avoid implementing mode publication separately in every command. Existing prompt getters currently relying on the Session lock need explicit guard/value access changes. This is a real cost of this proposal and belongs in /05/03, not the foundation slice.
+Update construction, apply_prompt_state and the direct assignment currently in switch_model (Session.cpp:993–1000,1059–1064) for the nested arrangement, sharing the actual update path instead of duplicating mutation logic across commands. Only mode/context_sources access moves to the new lock. Prompt strings and other existing metadata retain their Session-level protection. This work belongs to /05/03, not the shared model/stats foundation slice.
 
-**Alternative requiring a decision:** keep ResolvedPromptState protected only by Session and add a small read-only backend observation struct `{Mode mode; size_t context_source_count;}` maintained by one commit helper. This has lower accessor churn but duplicates derived metadata and requires reliable synchronization with all writers. I prefer wrapping the actual bundle to avoid that duplicate state. Approval must explicitly choose; do not implement both.
+When vector content changes but its size does not, notification may cause a refresh whose count comparison finds no display change. Accept that small redundant check; it does not justify a separately maintained count, content hash, second authority or more complex notification scheme. Implement only the selected nested wrapper, after the overall coding approval gate.
 
 **Debug prerequisite:** current UnlockedData::change logs `*write_access`. OPT_OUT alone may not provide a usable safe printer for this instantiation. Before wrapping a prompt/agent/trust aggregate, provide bounded non-content debug metadata or remove generic full-value logging as approved; never solve compilation by enabling full prompt printing. This is not permission to log sensitive strings.
 
@@ -436,22 +488,21 @@ Keep existing namespaces; neutral means value declarations without Session/proce
 
 | Proposed header | Contents / consumers |
 |---|---|
-| app/runtime/ModelSelection.h | Extract existing canonical value declaration from Session.h; uses ModelInfo/ReasoningSelection, no Session |
-| app/runtime/ModelSelection_ts.h | Alias + UnlockedData include; backend registration and frontend .cxx only |
-| session/stats_data.h | Move SessionEntryCounts/SessionStats value declarations unchanged; session/stats.h retains compute API and includes stats_data.h. Avoid SessionStore transitively in projection header |
-| app/runtime/SessionStats_ts.h | Existing wrapper alias; no need to include full Session |
-| app/runtime/AgentSelection.h and AgentSelection_ts.h | Actual canonical selection and wrapper; full AgentDefinition used backend/.cxx, not copied frontend |
+| app/runtime/ModelSelection.h | Extract canonical definition from Session.h; place ModelSelection_ts alias immediately below it in the same header |
+| SessionStats definition header (placement subject to existing module ownership) | Keep the statistics shape; colocate its wrapper alias with the definition rather than introducing SessionStats_ts.h. Verify module dependencies before deciding whether the current session/stats.h location can host the app-level wrapper; do not introduce a session-to-app cycle or silently relocate the type |
+| app/runtime/AgentSelection.h | Actual canonical selection followed immediately by AgentSelection_ts alias; full AgentDefinition not copied frontend |
 | agent/agent_definition_types.h | Extract existing AgentToolPreset and AgentDefinitionProvenance enums without changing values; frontend metadata snapshots and agent_config.h include it |
-| app/runtime/Directories.h and Directories_ts.h | Path-only canonical value plus separately included wrapper |
-| app/runtime/GitBranch_ts.h and app/runtime/git_branch.h/.cxx | String wrapper alias and existing branch observation moved out of TUI-specific support; backend update operation |
+| app/runtime/Directories.h | Canonical value followed immediately by Directories_ts alias |
+| app/runtime/git_branch.h/.cxx | GitBranch_ts string-wrapper alias in the ordinary branch header and existing observation/update implementation moved into runtime; no separate _ts header |
 | app/frontend/GitBranch.h/.cxx | Exact string snapshot, DisplayString and frontend refresh accessor |
-| app/runtime/ResolvedPromptState.h and ResolvedPromptState_ts.h | Existing backend bundle and wrapper; frontend PromptMetadata header needs only core mode and std optional/size_t |
+| app/runtime/PromptModeAndContextSources.h | Canonical mode/vector followed immediately by its wrapper alias; registered object is nested inside ResolvedPromptState |
+| app/runtime/ResolvedPromptState.h | Backend bundle containing mode_and_context_sources wrapper plus existing other metadata/prompt strings; no ResolvedPromptState_ts alias. Frontend PromptMetadata header needs only mode and size_t value declarations |
 | app/project_trust_types.h | Existing trust enums/value structs separated from persistence/staging API; app/project_trust.h includes it |
-| app/runtime/TrustState.h and TrustState_ts.h | Existing trust bundle and new wrapper |
-| app/runtime/SessionIdentity.h and SessionIdentity_ts.h | Candidate observation and wrapper, subject to section 7 approval |
+| app/runtime/TrustState.h | Existing trust bundle followed immediately by TrustState_ts alias |
+| app/runtime/SessionIdentity.h | Candidate observation followed immediately by SessionIdentity_ts alias, subject to section 7 approval |
 | app/frontend/AgentSelection.h/.cxx, Directories.h/.cxx, PromptMetadata.h/.cxx, ProjectTrust.h/.cxx, SessionIdentity.h/.cxx | Frontend snapshots/formatting and protected read implementations |
 
-The per-domain `_ts.h` split is a **proposal to approve**, not a requirement of C++: it keeps UnlockedData/FrontEnd mechanics out of frontend public projection headers and avoids a circular include when they carry value snapshots. An acceptable reviewed alternative is a small backend wrapper-alias header grouping only these aliases. Do not include Session.h just to find an alias.
+**User decision: no separate `_ts.h` headers.** Declare `using Foo_ts = UnlockedData<Foo>;` immediately below Foo's definition in the same header. The user removed the unnecessary FrontEnd.h include from UnlockedData.h; that hypothetical circular-include rationale is withdrawn. Include the required wrapper dependencies normally. The goal is to avoid pulling in all of Session.h to obtain a domain type, not to split every value from its alias or create a central alias-only header. Existing lower-layer types such as session::SessionStats need module-ownership verification when colocating an app-level wrapper, not an unapproved dependency cycle.
 
 All sketches omit implementation details of constructors/debug markers for frontend classes, not an intent to bypass repository C++ rules. Every actual class will retain the applicable debug marker, and .cxx code includes sys.h first. Sensitive canonical types need safe custom printing or a non-content generic notifier log; no generated prompt logging.
 
@@ -467,7 +518,7 @@ struct FrontendDataIndices {
   DataListIndex agent_selection;
   DataListIndex directories;
   DataListIndex git_branch;
-  DataListIndex resolved_prompt_state;
+  DataListIndex mode_and_context_sources;
   DataListIndex project_trust;
   DataListIndex session_identity;
   AVA_DEBUG_PRINT_MEMBERS_OPT_OUT
@@ -551,12 +602,12 @@ Frontend-local theme/binding/settings ownership can be corrected without new can
 
 Approval questions:
 
-1. AgentSelection as the actual moved requested/resolved selection, with field-only frontend copies rather than AgentDefinition snapshot?
+1. Settled by user: AgentSelection contains a nonoptional actual selected definition, resolved explicitly or by default before composer input; frontend SelectedAgentMetadata is also nonoptional. Requested CLI intent remains backend configuration, not a snapshot field. Review any missing concrete default-name/configuration policy separately.
 2. Directories as workspace/current/additional writable inputs moved out of InvocationInputs; whole frontend copy versus only root/current paths?
-3. Wrap existing ResolvedPromptState, copying only mode/count for now, versus a small derived observation maintained by a commit helper? The former avoids duplicated mode/count but requires protected-access migration for existing backend getters.
+3. Settled by user: option 3, PromptModeAndContextSources_ts nested in ResolvedPromptState. Register the nested stable object and copy only mode/vector size to frontend; other prompt fields retain existing protection.
 4. Wrap existing TrustState and copy selected existing presentation fields, keeping protected resource paths uncopied?
 5. Add narrowly derived SessionIdentity observation maintained at actual store-install points, or request a different identity factoring?
-6. Approve value/wrapper header split and neutral index-only initialization boundary? Backend registration stays narrow; frontend never gets Session access.
+6. Settled by user: wrapper aliases immediately follow canonical definitions in the same header; no separate _ts.h files. Neutral index-only initialization remains a separate proposal for review; do not interpret the header decision as approval of that binding API.
 7. Review core now with later catalog/resource/todo supplements, or complete every supplementary type proposal before any coding?
 
 Existing ModelSelection/SessionStats value shapes and outputs are not otherwise redesigned. Foundation /05/02/03 implements only approved shared model/stats header/binding work and relevant safe logging/documentation corrections; /05/03 implements approved agent/directory/identity/prompt facts; /05/04 handles approved trust/local settings/resource portion; /05/05 requires the additional catalog/todo decisions; /05/06 changes statistics publication ownership, not its shape; /05/07 preserves interfaces; /05/08 deletes superseded ordinary transports; /05/09 verifies scoped behavior.
