@@ -64,7 +64,7 @@ Additional source clarification: current agent::AgentDefinition (agent/agent_con
 
 No verified runtime /agent picker/selection handler was found in audit 03. Publish actual current selection first; adding interactive agent selection is separate product work. Prompt tests explicitly preserve the resolved selected definition across file changes/model switching. Do not silently reinterpret selected-agent display as live reloading of its source file.
 
-Git branch is a specific unresolved classification, not a reason to block the main plan: the located function only reads .git/HEAD for sidebar presentation. Do NOT create backend canonical branch state based solely on that use. /03 should trace whether the backend actually owns/uses an authoritative branch fact. If not, keep this observation in tui-specific presentation/support code using the projected workspace root, cached/refreshed outside rendering. Do not conflate it with backend workspace-directory authority or add a new branch watcher feature.
+Git branch ownership was subsequently settled by the user: migrate the existing observed string to Session_aggregate_base::git_branch_ of type GitBranch_ts = UnlockedData<std::string>. Move its reader into app/runtime and change() the canonical value at the same initial setup/action/completion moments that currently construct runtime state snapshots. A frontend GitBranch projection copies the string and returns its DisplayString through git_branch_refresh(). Remove the old snapshot/options/sidebar transfer, without adding a watcher, timer or render-time filesystem work. This decision supersedes the earlier suggestion to keep branch observation frontend-owned.
 
 ## 4. Complete ordinary input disposition
 
@@ -73,7 +73,7 @@ This table closes all non-callback TuiRuntimeOptions fields and TuiRuntimeStateS
 | Fields / old transport | Classification / destination | Removal owner and test concern |
 |---|---|---|
 | mode, session_id, session_path, workspace | B session/directory projections | /03; startup and action completion use same source; test distinct root/current path and switches |
-| git_branch | U observation unless backend authority is proven, as above | /03; remove bulk coupling, retain visible behavior/fallback |
+| git_branch | B observed string in Session GitBranch_ts; frontend string snapshot/display | /03; move reader into runtime, preserve observation moments/fallback, remove bulk/options branch transfer |
 | context_source_count (options, snapshot and submit result) | B context metadata | /03 with /06; one source, known zero not unknown |
 | app_version | I build/version value | /08 keep narrow immutable initialization or local build constant |
 | initial_status / status | U startup diagnostics and A correlated action feedback; not a generic canonical status bag | /04,/06,/08; do not lose warnings or hide successful mutations |
@@ -176,7 +176,7 @@ If AVA_DEBUG_OUTPUT_DIR points to an unwritable/stale location, report the envir
 
 ## 9. Decisions not to invent during implementation
 
-No unresolved question blocks the bounded migration under the preservation defaults above. Remaining local verification questions are assigned, not guessed: Git branch backend ownership (/03), any non-reasoning variant field actually present (/03), exact bounded ordinary catalog payloads (/05), and idle refresh scheduling under existing runtime (/02). If investigation reveals a large collection or inseparable interaction requiring a new design, return that specific choice to the user instead of extending this refactor.
+Remaining local verification questions are assigned, not guessed: any non-reasoning variant field actually present (/03), exact bounded ordinary catalog payloads (/05), and idle refresh scheduling under existing runtime (/02). Git branch backend ownership is settled as above. The later declaration proposal/review gate still blocks implementation of unapproved types, including unresolved catalog choices. If investigation reveals a large collection or inseparable interaction requiring a new design, return that specific choice to the user instead of extending this refactor.
 
 Do not invent agent switching commands, new agent/model precedence, default agent names, backend draft storage, general revision buses or new history/popup APIs. Select honest local formatting for existing facts, preserving absence distinctions. Require user agreement before removing features or substituting unimplemented endpoints.
 

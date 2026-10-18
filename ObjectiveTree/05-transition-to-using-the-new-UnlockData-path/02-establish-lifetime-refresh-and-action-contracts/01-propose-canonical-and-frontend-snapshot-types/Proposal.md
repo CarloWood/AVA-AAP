@@ -227,22 +227,55 @@ class Directories {
   runtime::Directories directories_snapshot_;
   DisplayString workspace_root_;
   DisplayString current_directory_;
-  bool workspace_root_path_changed_{true};
  public:
   RefreshResult<std::string const&> workspace_root_refresh();
   RefreshResult<std::string const&> current_directory_refresh();
-  RefreshResult<std::filesystem::path const&> workspace_root_path_refresh();
 };
 }
 // TuiFrontEnd:
 app::frontend::Directories directories_;
 ```
 
-The whole Directories value is copied. workspace_root_ formats snapshot.workspace_dir; current_directory_ formats snapshot.current_dir; additional_writable_dirs is retained but initially undisplayed. The typed path accessor exists only if the frontend's presentation-only Git observation actually needs it; one local controller owns its changed flag. If no typed consumer survives the implementation design, omit that accessor/flag rather than adding unused interface. It must not authorize backend tool access; backend continues validating against its roots/anchors.
+The whole Directories value is copied. workspace_root_ formats snapshot.workspace_dir; current_directory_ formats snapshot.current_dir; additional_writable_dirs is retained but initially undisplayed. No public workspace_root_path_refresh or separate path-change flag is proposed. Render-facing refresh results are display strings; a typed accessor needs a concrete cross-projection formatting dependency, like the existing numeric window used by SessionStats percentage, not a speculative consumer.
+
+Git branch is a separate canonical backend observation as specified in section 4a below. It needs no public path-refresh accessor on Directories. Preserve the current observation moments rather than introducing a watcher or making rendering read the filesystem.
 
 Writers: Session construction/open_at/replacement and any verified future directory mutation. Existing backend workspace_dir/current_dir reference-returning APIs require guard/value migration as with AgentSelection. Do not create a new cd/navigation feature. Test distinct workspace and current paths, detached copies and replacement. /05/03 owns implementation.
 
 **Review choice:** whole directories snapshot includes additional writable paths for future display. If that is not desired for frontend exposure, use two explicit path members instead and leave the additional vector uncopied; do not silently select that policy during coding.
+
+## 4a. Git branch — user-directed migration of the existing observed string
+
+```cpp
+namespace ava::app::runtime {
+using GitBranch_ts = UnlockedData<std::string>;
+}
+// Session_aggregate_base:
+GitBranch_ts git_branch_;
+
+namespace ava::app::frontend {
+class GitBranch {
+  FrontEnd const* frontend_;
+  DataListIndex index_;
+  std::atomic_bool dirty_{false};
+  std::string git_branch_snapshot_;
+  DisplayString git_branch_;
+  void refresh();
+ public:
+  void initialize(DataListIndex index);
+  void dirty();
+  RefreshResult<std::string const&> git_branch_refresh();
+};
+}
+// TuiFrontEnd:
+app::frontend::GitBranch git_branch_;
+```
+
+Canonical value is the existing observed branch string, not a new Git metadata struct. The projection copies the entire std::string into git_branch_snapshot_; its DisplayString owns the displayed representation and independent changed flag. Empty string retains the current unavailable/no-branch fallback; do not add an optional or change Git detection semantics in this migration.
+
+Move the existing branch-reading helper (currently git_branch_for_sidebar in app/tui/interactive_tui_support.cpp) to app/runtime, removing its sidebar-specific naming. A backend refresh operation reads the Session workspace root, observes the branch outside backend locks, and publishes through git_branch().change(...). Preserve the same observation moments: initial TUI setup and every path currently constructing TuiRuntimeStateSnapshot. During incremental migration those callsites can invoke the backend refresh; after removing the bulk snapshot retain a shared app/backend refresh hook at those same action/completion points, not duplicated branch-reading code. If observation can race replacement, validate the captured session/workspace before publishing into the current object. No new watcher, timer or broader polling policy is required.
+
+Remove TuiRuntimeStateSnapshot::git_branch and the duplicate initial TuiRuntimeOptions::git_branch transfer. Sidebar and drawer consume the frontend GitBranch::git_branch_refresh() result instead of storing another authoritative sidebar copy. Reading/observing Git is backend runtime work; the frontend accessor only snapshots/formats the already-observed value. A change in the canonical string marks this projection dirty, independently of directory changes. Preserve normal registered-address replacement and unregistered detached-copy rules. Implementation belongs to /05/03, not the shared model/stats foundation patch.
 
 ## 5. Prompt metadata: recommended wrapper around the EXISTING backend bundle
 
@@ -416,6 +449,8 @@ Keep existing namespaces; neutral means value declarations without Session/proce
 | app/runtime/AgentSelection.h and AgentSelection_ts.h | Actual canonical selection and wrapper; full AgentDefinition used backend/.cxx, not copied frontend |
 | agent/agent_definition_types.h | Extract existing AgentToolPreset and AgentDefinitionProvenance enums without changing values; frontend metadata snapshots and agent_config.h include it |
 | app/runtime/Directories.h and Directories_ts.h | Path-only canonical value plus separately included wrapper |
+| app/runtime/GitBranch_ts.h and app/runtime/git_branch.h/.cxx | String wrapper alias and existing branch observation moved out of TUI-specific support; backend update operation |
+| app/frontend/GitBranch.h/.cxx | Exact string snapshot, DisplayString and frontend refresh accessor |
 | app/runtime/ResolvedPromptState.h and ResolvedPromptState_ts.h | Existing backend bundle and wrapper; frontend PromptMetadata header needs only core mode and std optional/size_t |
 | app/project_trust_types.h | Existing trust enums/value structs separated from persistence/staging API; app/project_trust.h includes it |
 | app/runtime/TrustState.h and TrustState_ts.h | Existing trust bundle and new wrapper |
@@ -437,6 +472,7 @@ struct FrontendDataIndices {
   DataListIndex session_stats;
   DataListIndex agent_selection;
   DataListIndex directories;
+  DataListIndex git_branch;
   DataListIndex resolved_prompt_state;
   DataListIndex project_trust;
   DataListIndex session_identity;
@@ -487,6 +523,7 @@ app::frontend::ModelSelection model_selection_; // existing
 app::frontend::SessionStats session_stats_;     // existing
 app::frontend::AgentSelection agent_selection_; // proposed
 app::frontend::Directories directories_;       // proposed
+app::frontend::GitBranch git_branch_;           // user-directed observed string migration
 app::frontend::PromptMetadata prompt_metadata_;// proposed
 app::frontend::ProjectTrust project_trust_;     // proposed
 app::frontend::SessionIdentity session_identity_; // proposed, explicit decision
@@ -508,7 +545,7 @@ The earlier plan included catalogs, safe resource overview and todos. I do not r
 
 These are material type/ownership decisions, not implementation details to delegate unseen. Options for user review: (A) approve the core model/stats/agent/directories/prompt/trust/identity design first and require per-domain supplements before /04–05 affected slices; or (B) require all supplements before authorizing even foundation coding. Either is compatible with the no-coding-before-approval rule. The current review gate must record which scope was approved and which remains blocked.
 
-Git branch has only a located presentation helper, not established backend authority. No UnlockedData<GitBranch> is proposed; retain a tui-specific cached observation from the exposed workspace root if needed. No generic live-run/status object is proposed: protocol-specific run/interaction state is deferred. Independent future counters can be added only after their actual backend owner/type is reviewed.
+Git branch ownership is settled by user direction: use GitBranch_ts = UnlockedData<std::string> in Session and preserve existing observation moments, as in section 4a. No generic live-run/status object is proposed: protocol-specific run/interaction state is deferred. Independent future counters can be added only after their actual backend owner/type is reviewed.
 
 ## 10. Explicit exclusions
 
