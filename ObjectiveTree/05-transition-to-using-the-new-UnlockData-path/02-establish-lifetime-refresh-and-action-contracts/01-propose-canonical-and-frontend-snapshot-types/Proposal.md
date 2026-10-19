@@ -2,7 +2,7 @@
 
 ## Status and boundaries
 
-**Proposal, not approved implementation.** No source files, builds or configuration were changed. Declarations below are sketches for review, not generated source. Source inspection used the current working tree: Session.h, Session.cpp mutation sites, frontend ModelSelection/SessionStats, session/stats.h, runtime/ReasoningSelection.h, agent/agent_config.h, project_trust.h and command_palette.h. Earlier audit Result.md files supply producer/consumer and verification inventories.
+**Proposal, not approved implementation.** No source files, builds or configuration were changed by this planning work. Declarations below are sketches for review, not generated source. Source references include Session.h, Session.cpp mutation sites, frontend ModelSelection/SessionStats, session/Stats.h, runtime/SessionStats.h, runtime/ReasoningSelection.h, agent/agent_config.h, project_trust.h and command_palette.h. Statistics names and placement were reconciled with the user's commit c0b9b06e: session::Stats and session::EntryCounts are reusable values; runtime::SessionStats_ts is the runtime wrapper. Earlier audit Result.md files supply historical producer/consumer and verification inventories.
 
 I recommend preserving the existing pattern: wrap actual backend-owned cohesive data, copy only the required value members into a frontend projection, and format there. Do not create a second writable agent/model/mode/directory selection solely for UI consumption. No generic property system or registry replacement.
 
@@ -77,13 +77,13 @@ Existing accessors stay `refresh_model()`, `refresh_provider()`, `refresh_reason
 
 Canonical scoped_model_cycle remains unchanged with its existing optional semantics. This refactor neither expands nullopt into a stored model list nor removes the optional; that is a separate backend/UI behavior decision. The existing ModelSelection projection continues copying only model and reasoning. When a popup action actually changes the selected model/reasoning, those current displayed values still refresh through the existing canonical notification path.
 
-## 2. Existing SessionStats — keep canonical statistics and whole snapshot
+## 2. Existing session::Stats and runtime::SessionStats_ts — keep canonical statistics and whole snapshot
 
-The current source includes recently added equality operators. Preserve them. Nested counters in session/stats.h:
+The current source includes equality operators; preserve them. Following commit c0b9b06e, the values are defined in session/Stats.h (capital S), and the wrapper alias is defined separately in app/runtime/SessionStats.h. This placement is settled, not a pending module-ownership question. The frontend class remains named frontend::SessionStats.
 
 ```cpp
 namespace ava::session {
-struct SessionEntryCounts {
+struct EntryCounts {
   std::size_t session_start = 0;
   std::size_t session_metadata = 0;
   std::size_t user_message = 0;
@@ -99,14 +99,14 @@ struct SessionEntryCounts {
   std::size_t branch_summary = 0;
   std::size_t error = 0;
   std::size_t cancel = 0;
-  bool operator==(SessionEntryCounts const& other) const = default;
+  bool operator==(EntryCounts const& other) const = default;
   AVA_DEBUG_PRINT_MEMBERS_ON
 };
-struct SessionStats {
+struct Stats {
   std::size_t entry_count = 0;
   std::string first_timestamp;
   std::string last_timestamp;
-  SessionEntryCounts counts;
+  EntryCounts counts;
   std::optional<long long> input_tokens;
   std::optional<long long> output_tokens;
   std::optional<long long> reasoning_tokens;
@@ -124,12 +124,13 @@ struct SessionStats {
   std::size_t unknown_cost_entries = 0;
   std::size_t exact_usage_entries = 0;
   std::size_t estimated_usage_entries = 0;
-  bool operator==(SessionStats const& other) const = default;
+  bool operator==(Stats const& other) const = default;
   AVA_DEBUG_PRINT_MEMBERS_ON
 };
 }
 namespace ava::app::runtime {
-using SessionStats_ts = UnlockedData<ava::session::SessionStats>;
+// Defined in app/runtime/SessionStats.h, not in session/Stats.h:
+using SessionStats_ts = UnlockedData<ava::session::Stats>;
 }
 ```
 
@@ -138,7 +139,7 @@ Default-constructed optionals are disengaged. Active history and system-prompt t
 Backend storage remains `SessionStats_ts session_stats_`. Frontend remains:
 
 ```cpp
-ava::session::SessionStats stats_snapshot_;  // Copy of entire canonical value.
+ava::session::Stats stats_snapshot_;  // Copy of entire canonical value.
 std::optional<long long> active_token_total_; // Derived saturated total, NOT another source.
 DisplayString token_count_;
 DisplayString percentage_;
@@ -489,7 +490,8 @@ Keep existing namespaces; neutral means value declarations without Session/proce
 | Proposed header | Contents / consumers |
 |---|---|
 | app/runtime/ModelSelection.h | Extract canonical definition from Session.h; place ModelSelection_ts alias immediately below it in the same header |
-| SessionStats definition header (placement subject to existing module ownership) | Keep the statistics shape; colocate its wrapper alias with the definition rather than introducing SessionStats_ts.h. Verify module dependencies before deciding whether the current session/stats.h location can host the app-level wrapper; do not introduce a session-to-app cycle or silently relocate the type |
+| session/Stats.h | Existing session::Stats and session::EntryCounts values plus compute_session_stats API; no app-level wrapper dependency |
+| app/runtime/SessionStats.h | Existing runtime::SessionStats_ts = UnlockedData<session::Stats>; includes UnlockedData.h and session/Stats.h. Preserve this user-established placement |
 | app/runtime/AgentSelection.h | Actual canonical selection followed immediately by AgentSelection_ts alias; full AgentDefinition not copied frontend |
 | agent/agent_definition_types.h | Extract existing AgentToolPreset and AgentDefinitionProvenance enums without changing values; frontend metadata snapshots and agent_config.h include it |
 | app/runtime/Directories.h | Canonical value followed immediately by Directories_ts alias |
@@ -502,7 +504,7 @@ Keep existing namespaces; neutral means value declarations without Session/proce
 | app/runtime/SessionIdentity.h | Candidate observation followed immediately by SessionIdentity_ts alias, subject to section 7 approval |
 | app/frontend/AgentSelection.h/.cxx, Directories.h/.cxx, PromptMetadata.h/.cxx, ProjectTrust.h/.cxx, SessionIdentity.h/.cxx | Frontend snapshots/formatting and protected read implementations |
 
-**User decision: no separate `_ts.h` headers.** Declare `using Foo_ts = UnlockedData<Foo>;` immediately below Foo's definition in the same header. The user removed the unnecessary FrontEnd.h include from UnlockedData.h; that hypothetical circular-include rationale is withdrawn. Include the required wrapper dependencies normally. The goal is to avoid pulling in all of Session.h to obtain a domain type, not to split every value from its alias or create a central alias-only header. Existing lower-layer types such as session::SessionStats need module-ownership verification when colocating an app-level wrapper, not an unapproved dependency cycle.
+**User decision: no per-domain `_ts.h` split.** For runtime-owned canonical structs, put `using Foo_ts = UnlockedData<Foo>;` immediately below the definition. Statistics now have an explicitly chosen cross-layer arrangement: reusable session::Stats stays in session/Stats.h, while runtime::SessionStats_ts lives in app/runtime/SessionStats.h. Do not move that alias back into the session layer or reopen the solved dependency issue. UnlockedData.h no longer includes FrontEnd.h; the earlier hypothetical circular-include rationale is withdrawn. The goal remains avoiding all of Session.h just to name a domain type, not mechanically splitting every value and alias.
 
 All sketches omit implementation details of constructors/debug markers for frontend classes, not an intent to bypass repository C++ rules. Every actual class will retain the applicable debug marker, and .cxx code includes sys.h first. Sensitive canonical types need safe custom printing or a non-content generic notifier log; no generated prompt logging.
 
@@ -607,7 +609,7 @@ Approval questions:
 3. Settled by user: option 3, PromptModeAndContextSources_ts nested in ResolvedPromptState. Register the nested stable object and copy only mode/vector size to frontend; other prompt fields retain existing protection.
 4. Wrap existing TrustState and copy selected existing presentation fields, keeping protected resource paths uncopied?
 5. Add narrowly derived SessionIdentity observation maintained at actual store-install points, or request a different identity factoring?
-6. Settled by user: wrapper aliases immediately follow canonical definitions in the same header; no separate _ts.h files. Neutral index-only initialization remains a separate proposal for review; do not interpret the header decision as approval of that binding API.
+6. Settled by user: no per-domain _ts.h split; runtime-owned structs have adjacent aliases. Statistics specifically retain session::Stats/EntryCounts in session/Stats.h and runtime::SessionStats_ts in app/runtime/SessionStats.h, per c0b9b06e. Neutral index-only initialization remains a separate proposal for review; these placement decisions do not approve that binding API.
 7. Review core now with later catalog/resource/todo supplements, or complete every supplementary type proposal before any coding?
 
 Existing ModelSelection/SessionStats value shapes and outputs are not otherwise redesigned. Foundation /05/02/03 implements only approved shared model/stats header/binding work and relevant safe logging/documentation corrections; /05/03 implements approved agent/directory/identity/prompt facts; /05/04 handles approved trust/local settings/resource portion; /05/05 requires the additional catalog/todo decisions; /05/06 changes statistics publication ownership, not its shape; /05/07 preserves interfaces; /05/08 deletes superseded ordinary transports; /05/09 verifies scoped behavior.
