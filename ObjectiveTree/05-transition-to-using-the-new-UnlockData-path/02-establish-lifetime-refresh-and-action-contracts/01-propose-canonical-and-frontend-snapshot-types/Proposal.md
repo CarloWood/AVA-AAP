@@ -385,30 +385,31 @@ User decision: do not wrap TrustState in UnlockedData. Keep existing TrustState/
 
 No TrustState_ts, frontend::ProjectTrust projection, trust snapshot/DisplayString members, new trust refresh accessors or registration index is proposed. This excludes both the earlier per-field display proposal and the later whole-value snapshot suggestion. When backend trust changes cause the selected agent or other separately approved canonical values to change, publish those values through their own existing/approved paths; that does not require wrapping trust itself. Do not remove trust enforcement or UI functionality to satisfy a blanket snapshot-removal rule.
 
-## 7. Session identity — explicit derived observation candidate, not store replacement
+## 7. Session identity — wrap the existing SessionStoreOptions member
 
-**User-approved scope:** session ID/path in the sidebar/drawer are live display data, equivalent to status-bar fields, and require canonical UnlockedData-backed observation plus frontend DisplayStrings. Do not defer them as modal content. Backend /commands publish canonical changes without manually updating a particular UI. This settles the display requirement only; the duplicate-observation candidate below remains unapproved pending a storage decision that preserves one authoritative identity.
+**User-approved scope and direction:** session ID/path in the sidebar/drawer are live display data. Wrap SessionStore::options_, not the whole store or an additional identity record. The previously proposed runtime::SessionIdentity/SessionIdentity_ts and Session_aggregate_base::session_identity_ are withdrawn. Correctness of copy/move/access and dependency placement must be established before implementation; direction approval does not establish those mechanics automatically.
 
-The store owns persistent identity/path; wrapping SessionStore would expose authority/handles and history machinery. For UI transition detection I propose a small backend-published observation instead, with this duplication explicitly acknowledged:
+Existing canonical value shape is retained:
 
 ```cpp
-namespace ava::app::runtime {
-struct SessionIdentity {
+namespace ava::session {
+struct SessionStoreOptions {
+  std::filesystem::path root_dir;
+  std::filesystem::path workspace_dir;
   std::string session_id;
-  std::filesystem::path session_path;
-  bool sessionless = false;
-  AVA_DEBUG_PRINT_MEMBERS_OPT_OUT
+  AVA_DEBUG_PRINT_MEMBERS_ON
 };
-using SessionIdentity_ts = UnlockedData<SessionIdentity>;
+// SessionStore::options_ becomes UnlockedData<SessionStoreOptions>.
+// Alias/header placement must respect the module-boundary decision below.
 }
 ```
 
-Add `SessionIdentity_ts session_identity_` to Session_aggregate_base. Do not remove identity/path from SessionStore, and do not give independent setters for these fields. One backend construction/replacement publication helper derives them from the installed store and effective sessionless state. Detached construction derives a fresh unregistered observation for its copied store. Before successful action return it must match actual authority; no UI callback publishes it. Empty strings in default-constructed storage are not an authorized session; initialize before frontend registration. An ephemeral session may have an ID but no persistent path, so sessionless is explicit.
+No extra SessionIdentity canonical member is added. Register the nested options_ of the actual live Session::store. root_dir is the session-file storage root, not the agent workspace root; workspace_dir contributes to the storage bucket key; session_path() derives root_dir/project_key(workspace_dir)/(session_id + ".jsonl"). InvocationInputs workspace_dir/current_dir remain the execution directory source addressed by Directories. Preserve current ephemeral behavior instead of assuming a computed path proves a persistent file exists.
 
 ```cpp
 namespace ava::app::frontend {
 class SessionIdentity {
-  runtime::SessionIdentity identity_snapshot_;
+  ava::session::SessionStoreOptions options_snapshot_;
   DisplayString session_id_;
   DisplayString session_path_;
  public:
@@ -420,9 +421,11 @@ class SessionIdentity {
 app::frontend::SessionIdentity session_identity_;
 ```
 
-The whole value is copied internally; the projection exposes only session_id_refresh() and session_path_refresh() display strings. No other projection has an established cross-projection formatting dependency on the complete SessionIdentity, so no identity_refresh() or aggregate change flag is proposed. The previously suggested typed accessor was for controller transition detection, not display-string composition, and is withdrawn. Preserve existing transition behavior while removing old ordinary-state transport; decide its minimal control integration separately rather than using a speculative typed projection accessor or treating display text/its consumed changed flag as backend transition authority. No canonical draft, grants, transcript or selector state belongs in this object, and no new transition generation is proposed.
+The projection copies the existing options value and exposes only ID/path display strings. Reuse a single pure path-derivation helper with SessionStore so frontend formatting does not duplicate project_key/path logic or read filesystem/history. No typed identity_refresh accessor is proposed. Preserve transition handling separately from rendering and its consumed flags. No canonical draft, grants, transcript or selector state belongs here.
 
-**Decision required:** approve this narrowly derived identity observation, or prefer a different authoritative store-identity factoring. Unlike AgentSelection/Directories this is not simply moving existing fields. Keeping a general runtime snapshot solely for identity is not the desired final solution, but wrapping the store/history is not proposed. /05/03 implements only the chosen approach.
+**Correctness work required before /05/03 implementation:** SessionStore is currently a value-copyable handle with shared ephemeral/observation attachments. A nested UnlockedData changes generated copy/move availability. Trace and explicitly preserve those copy semantics while creating unregistered copied wrappers; do not accidentally share registrations or duplicate/change history. Assignment into the registered live store must preserve options_ address/index and notify after a coherent update; constructors/moves may not relocate a registered object. session_id() currently returns a const reference: introduce guarded/value access without returning references past a temporary guard. Trace private options_ uses to avoid reentrant lock acquisition. No general store rewrite is authorized.
+
+**Header/dependency issue requiring resolution:** SessionStore is in ava::session, while UnlockedData and its notification base currently reside under app. The approved wrapping direction does not authorize a session-to-app dependency cycle or weakening the module guard. Investigate the smallest shared placement of the observable-data mechanism needed for this actual use, then present that concrete change for review. Do not work around it by resurrecting the duplicate identity record or splitting aliases into arbitrary _ts headers.
 
 ## 8. Shared declarations, bindings and frontend ownership
 
@@ -442,7 +445,7 @@ Keep existing namespaces; neutral means value declarations without Session/proce
 | app/frontend/GitBranch.h/.cxx | Exact string snapshot, DisplayString and frontend refresh accessor |
 | app/runtime/PromptModeAndContextSources.h | Canonical mode/vector followed immediately by its wrapper alias; registered object is nested inside ResolvedPromptState |
 | app/runtime/ResolvedPromptState.h | Backend bundle containing mode_and_context_sources wrapper plus existing other metadata/prompt strings; no ResolvedPromptState_ts alias. Frontend PromptMetadata header needs only mode and size_t value declarations |
-| app/runtime/SessionIdentity.h | Candidate observation followed immediately by SessionIdentity_ts alias, subject to section 7 approval |
+| session/session_store.h (or reviewed extraction of its options declaration) | Existing SessionStoreOptions and nested observable options storage; no new runtime SessionIdentity canonical type. Wrapper infrastructure/module placement requires the section 7 correctness review |
 | app/frontend/AgentSelection.h/.cxx, Directories.h/.cxx, PromptMetadata.h/.cxx, SessionIdentity.h/.cxx | Frontend snapshots/formatting and protected read implementations |
 
 **User decision: no per-domain `_ts.h` split.** For runtime-owned canonical structs, put `using Foo_ts = UnlockedData<Foo>;` immediately below the definition. Statistics now have an explicitly chosen cross-layer arrangement: reusable session::Stats stays in session/Stats.h, while runtime::SessionStats_ts lives in app/runtime/SessionStats.h. Do not move that alias back into the session layer or reopen the solved dependency issue. UnlockedData.h no longer includes FrontEnd.h; the earlier hypothetical circular-include rationale is withdrawn. The goal remains avoiding all of Session.h just to name a domain type, not mechanically splitting every value and alias.
@@ -450,6 +453,8 @@ Keep existing namespaces; neutral means value declarations without Session/proce
 All sketches omit implementation details of constructors/debug markers for frontend classes, not an intent to bypass repository C++ rules. Every actual class will retain the applicable debug marker, and .cxx code includes sys.h first. Sensitive canonical types need safe custom printing or a non-content generic notifier log; no generated prompt logging.
 
 ### Registration proposal: pass indices, not Session guards
+
+**Deferred by explicit user decision:** retain the existing registration/initialization pattern for this refactor, adding approved canonical objects through it. The following alternative is preserved for future consideration, not current implementation. Immutable reference: https://github.com/CarloWood/AVA-AAP/blob/696e3da78e4fa36134c71e633d34601bb60d1a69/ObjectiveTree/05-transition-to-using-the-new-UnlockData-path/02-establish-lifetime-refresh-and-action-contracts/01-propose-canonical-and-frontend-snapshot-types/Proposal.md#registration-proposal-pass-indices-not-session-guards . Any index-only initialize signatures in earlier sketches belong to this deferred alternative; implementation keeps the current typed canonical-object initialization convention.
 
 Do not create another registry. Use existing DataListIndex and backend registration. Proposed shared handle-only binding value (shown at final core size; foundation implements only existing model/stats fields):
 
@@ -529,7 +534,7 @@ The earlier plan included catalogs, safe resource overview and todos. I do not r
 | Session selector: ApplicationCatalogCache::session_tree | SessionTreeIndex/SessionSummary can contain backend authority-related data. Select exact safe metadata and identity fields; determine acceptable bounded copy cost without designing history access | /05 session-list portion blocked. Do not wrap/copy entire ApplicationCatalogCache or SessionTreeIndex merely to eliminate SelectListView |
 | Todos: latest committed todowrite state | Choose reusing agent::TodoItem value records versus a session-owned neutral todo value declaration, and whether absence/load error remains the current empty-list behavior or has explicit observation state. Specify publication owner replacing hydration and any overlap with retained live events | /05 todo portion blocked; no second writable todo history. Existing history/event delivery stays intact until that reviewed ordinary projection can be fed coherently |
 
-These are material type/ownership decisions, not implementation details to delegate unseen. Options for user review: (A) approve the core model/stats/agent/directories/prompt/trust/identity design first and require per-domain supplements before /04–05 affected slices; or (B) require all supplements before authorizing even foundation coding. Either is compatible with the no-coding-before-approval rule. The current review gate must record which scope was approved and which remains blocked.
+These are material type/ownership decisions, not implementation details to delegate unseen. **User decision:** review the remaining catalog/resource/todo types individually at their respective implementation goals, without blocking already-reviewed core work. Each such slice requires a concrete supplementary type proposal and user approval before implementing it. No deferred type is implicitly approved, and trust/history/popup exclusions remain in force. This staged review decision does not itself authorize coding.
 
 Git branch ownership is settled by user direction: use GitBranch_ts = UnlockedData<std::string> in Session and preserve existing observation moments, as in section 4a. No generic live-run/status object is proposed: protocol-specific run/interaction state is deferred. Independent future counters can be added only after their actual backend owner/type is reviewed.
 
@@ -547,7 +552,7 @@ Approval questions:
 2. Settled by user: move workspace/current/additional writable paths into Directories, wrap it and copy the whole value; display root/current paths only for now. Approval is based on semantic cohesion versus mutation/copy/locking cost, not a rule to wrap all undisplayed fields.
 3. Settled by user: option 3, PromptModeAndContextSources_ts nested in ResolvedPromptState. Register the nested stable object and copy only mode/vector size to frontend; other prompt fields retain existing protection.
 4. Settled by user: no UnlockedData wrapper or frontend projection for TrustState; preserve existing trust behavior/presentation paths.
-5. Add narrowly derived SessionIdentity observation maintained at actual store-install points, or request a different identity factoring?
+5. Settled direction: wrap existing SessionStoreOptions inside SessionStore, no duplicate canonical identity. Copy/move/access semantics and shared wrapper dependency placement still require concrete correctness review before coding.
 6. Settled by user: no per-domain _ts.h split; runtime-owned structs have adjacent aliases. Statistics specifically retain session::Stats/EntryCounts in session/Stats.h and runtime::SessionStats_ts in app/runtime/SessionStats.h, per c0b9b06e. Neutral index-only initialization remains a separate proposal for review; these placement decisions do not approve that binding API.
 7. Review core now with later catalog/resource/todo supplements, or complete every supplementary type proposal before any coding?
 

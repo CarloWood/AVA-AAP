@@ -35,7 +35,21 @@ User's distinction: on-demand modal content is obtained on frontend initiative, 
 
 ## Remaining review, not yet presented for decision
 
-Session ID/path canonical storage without duplicate authority (live display requirement now approved); necessity and shape of proposed registration API changes; scope of later supplementary type proposals; bounded foundation coding authorization. Address these separately, without reopening explicit decisions absent new evidence.
+Bounded foundation coding authorization. Address this separately, without reopening explicit decisions absent new evidence.
+
+## Decided: review remaining domain types at their implementation goals
+
+User answered "ok" to deferring concrete catalog/resource/todo type reviews until their respective implementation goals, rather than delaying already-reviewed core work. Each affected slice must present its actual types for user review before implementing them. These deferred types are not implicitly approved. Existing history/popup exclusions remain unchanged. This decision allows staged type approval; it is not itself authorization to start coding.
+
+## Decided: retain existing registration/initialization
+
+User explicitly instructed: "retain the existing registration/initialization pattern for now." Add approved canonical objects through that pattern; no FrontendDataIndices argument, new SessionFrontendBinding helper or associated friend/setup redesign in this refactor. The alternative is deferred as a reminder topic, with the preserved proposal at https://github.com/CarloWood/AVA-AAP/blob/696e3da78e4fa36134c71e633d34601bb60d1a69/ObjectiveTree/05-transition-to-using-the-new-UnlockData-path/02-establish-lifetime-refresh-and-action-contracts/01-propose-canonical-and-frontend-snapshot-types/Proposal.md#registration-proposal-pass-indices-not-session-guards . Its presence in proposal sketches is not authorization to implement it.
+
+## Approved direction: wrap SessionStore's existing options member
+
+User explicitly approved wrapping only SessionStore::options_ (SessionStoreOptions), not the entire SessionStore and not a duplicate SessionIdentity observation. Directories remains orthogonal: InvocationInputs paths describe agent execution; store root_dir is the session-storage root, workspace_dir selects the storage bucket and session_id identifies the stored session. Approval is of this factoring, conditional on careful correctness work, not proof that default generated copy/move operations remain valid after adding a noncopyable wrapper.
+
+Before implementation verify SessionStore's existing value copies, detached copies, move/replacement paths and reference-returning accessors. Copies must preserve existing store semantics but must not inherit frontend registration; the live registered destination must retain its nested object's address/index during assignment. Check session::SessionStore dependencies on the currently app-owned wrapper without weakening guards or inventing a duplicate identity value. Record this as implementation feasibility work; no source changes or blanket coding authorization follow from this direction approval.
 
 ## Authorization
 

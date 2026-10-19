@@ -1,5 +1,2 @@
 1. Define incremental editing of `Pad` while keeping its retained layout content and rendered buffer consistent - needs discussion
-2. Queue special events during paste; afterward handle mouse/resize normally, but discard the paste if any other special key occurred - policy decided; implementation pending
-3. Replace existing TUI/backend connections with the shared frontend API in small steps - frontend object and entry point established; further separation pending
-4. Split TUI-specific application code into `app/tui/`, extracting genuinely shared code; keep TUI and GUI settings in separate files - approach agreed; refactoring pending
-5. Restore context-window percentage using the model-selection and session-statistics frontend snapshots - previous calculation located in Git history; cross-projection design needs discussion
+2. Consider passing `FrontendDataIndices const&` to `FrontEnd::initialize_frontend_state` instead of Session read access - deferred; [preserved proposal](https://github.com/CarloWood/AVA-AAP/blob/696e3da78e4fa36134c71e633d34601bb60d1a69/ObjectiveTree/05-transition-to-using-the-new-UnlockData-path/02-establish-lifetime-refresh-and-action-contracts/01-propose-canonical-and-frontend-snapshot-types/Proposal.md#registration-proposal-pass-indices-not-session-guards)
