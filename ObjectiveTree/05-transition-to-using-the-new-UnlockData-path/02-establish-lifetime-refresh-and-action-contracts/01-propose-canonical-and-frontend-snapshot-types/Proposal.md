@@ -6,6 +6,8 @@
 
 I recommend preserving the existing pattern: wrap actual backend-owned cohesive data, copy only the required value members into a frontend projection, and format there. Do not create a second writable agent/model/mode/directory selection solely for UI consumption. No generic property system or registry replacement.
 
+User-approved grouping preference: expect infrequent updates (seconds apart or longer) and negligible contention. Keep naturally related backend members together if splitting them would make the code awkward, even when some members are not displayed and may never be. Do not mechanically partition structs by UI usage or introduce finer locks to avoid hypothetical tiny costs. Concrete expensive work or independently meaningful responsibilities can justify a split; otherwise backend readability and semantic cohesion take precedence. Ambiguous grouping choices should be reviewed with the user, not decided by a rigid rule.
+
 The proposal has three categories:
 
 1. Existing model/statistics shapes, retained and accurately reproduced below.
@@ -242,7 +244,7 @@ Git branch is a separate canonical backend observation as specified in section 4
 
 Writers: Session construction/open_at/replacement and any verified future directory mutation. Existing backend workspace_dir/current_dir reference-returning APIs require guard/value migration as with AgentSelection. Do not create a new cd/navigation feature. Test distinct workspace and current paths, detached copies and replacement. /05/03 owns implementation.
 
-**Review choice:** whole directories snapshot includes additional writable paths for future display. If that is not desired for frontend exposure, use two explicit path members instead and leave the additional vector uncopied; do not silently select that policy during coding.
+**Approved by user:** keep workspace_dir, current_dir and additional_writable_dirs together in Directories and copy the whole value into directories_snapshot_, displaying only root/current paths initially. This is a semantic grouping decision, not a blanket preference for wrapping undisplayed data. Additional writable paths belong to backend directory configuration; weigh their actual mutation/copy cost and contention, rather than grouping solely for appearance. No additional writable-path display accessor is implied.
 
 ## 4a. Git branch — user-directed migration of the existing observed string
 
@@ -377,74 +379,15 @@ When vector content changes but its size does not, notification may cause a refr
 
 Safe overview resource facts beyond mode/count remain a separate unresolved choice in section 9; copying raw source metadata to TUI is not approved by this wrapper.
 
-## 6. Trust: wrap existing authority value; copy selected presentation fields
+## 6. Trust — explicitly excluded from wrapping
 
-Existing ProjectTrustState:
+User decision: do not wrap TrustState in UnlockedData. Keep existing TrustState/ProjectTrustState storage, synchronization, persistence and backend policy unchanged. The identified compact summary is shown in /settings -> Workspace, not an always-visible composer/sidebar field. Preserve its existing on-demand delivery and other existing trust presentation paths with the deferred interactions.
 
-```cpp
-namespace ava::app {
-enum class ProjectTrustDecision { Unknown, Trusted, Denied };
-struct ProjectTrustResource {
-  std::string kind;
-  std::filesystem::path path;
-  AVA_DEBUG_PRINT_MEMBERS_ON
-};
-struct ProjectTrustState {
-  std::filesystem::path workspace_dir;
-  std::filesystem::path trust_file;
-  ProjectTrustDecision decision = ProjectTrustDecision::Unknown;
-  std::filesystem::path matched_path;
-  std::vector<ProjectTrustResource> protected_resources;
-  std::string diagnostic;
-  AVA_DEBUG_PRINT_MEMBERS_ON
-};
-}
-namespace ava::app::runtime {
-struct TrustState {
-  app::ProjectTrustState project_trust;
-  AVA_DEBUG_PRINT_MEMBERS_OPT_OUT
-};
-using TrustState_ts = UnlockedData<TrustState>;
-}
-```
-
-Proposed storage replaces the bare `TrustState trust_state_` with `TrustState_ts trust_state_`. Keep existing validated trust mutation/persistence; write notification is not approval authority. Backend trust getters need protected access rather than leaking a reference. No change to the deferred permission popup protocol.
-
-```cpp
-namespace ava::app::frontend {
-class ProjectTrust {
-  app::ProjectTrustDecision decision_snapshot_ = app::ProjectTrustDecision::Unknown;
-  std::filesystem::path workspace_snapshot_;
-  std::filesystem::path matched_path_snapshot_;
-  std::filesystem::path trust_file_snapshot_;
-  std::size_t protected_resource_count_snapshot_ = 0;
-  std::string diagnostic_snapshot_;
-  DisplayString decision_;
-  DisplayString project_resources_;
-  DisplayString workspace_;
-  DisplayString matched_path_;
-  DisplayString trust_file_;
-  DisplayString protected_resource_count_;
-  DisplayString diagnostic_;
- public:
-  RefreshResult<std::string const&> decision_refresh();
-  RefreshResult<std::string const&> project_resources_refresh();
-  RefreshResult<std::string const&> workspace_refresh();
-  RefreshResult<std::string const&> matched_path_refresh();
-  RefreshResult<std::string const&> trust_file_refresh();
-  RefreshResult<std::string const&> protected_resource_count_refresh();
-  RefreshResult<std::string const&> diagnostic_refresh();
-};
-}
-// TuiFrontEnd:
-app::frontend::ProjectTrust project_trust_;
-```
-
-Each named snapshot field copies the same-named/obvious source member of canonical project_trust; resource count derives from protected_resources.size() under that read guard. Resource path vector is deliberately uncopied. project_resources_ derives enabled/skipped from the actual trust decision rule, not a new boolean authority. These path/diagnostic fields are already exposed by the existing trust UI; they must not be fed into the deliberately path-free overview. A future overview composes only its approved safe subset.
-
-Trust workspace is the workspace evaluated by the trust record, not a competing active workspace_dir. Preserve this meaning even if the paths normally match. /05/04 owns implementation and all trust writers, including the direct assignments in command_trust and apply_trust_prompt_state_and_refresh.
+No TrustState_ts, frontend::ProjectTrust projection, trust snapshot/DisplayString members, new trust refresh accessors or registration index is proposed. This excludes both the earlier per-field display proposal and the later whole-value snapshot suggestion. When backend trust changes cause the selected agent or other separately approved canonical values to change, publish those values through their own existing/approved paths; that does not require wrapping trust itself. Do not remove trust enforcement or UI functionality to satisfy a blanket snapshot-removal rule.
 
 ## 7. Session identity — explicit derived observation candidate, not store replacement
+
+**User-approved scope:** session ID/path in the sidebar/drawer are live display data, equivalent to status-bar fields, and require canonical UnlockedData-backed observation plus frontend DisplayStrings. Do not defer them as modal content. Backend /commands publish canonical changes without manually updating a particular UI. This settles the display requirement only; the duplicate-observation candidate below remains unapproved pending a storage decision that preserves one authoritative identity.
 
 The store owns persistent identity/path; wrapping SessionStore would expose authority/handles and history machinery. For UI transition detection I propose a small backend-published observation instead, with this duplication explicitly acknowledged:
 
@@ -499,10 +442,8 @@ Keep existing namespaces; neutral means value declarations without Session/proce
 | app/frontend/GitBranch.h/.cxx | Exact string snapshot, DisplayString and frontend refresh accessor |
 | app/runtime/PromptModeAndContextSources.h | Canonical mode/vector followed immediately by its wrapper alias; registered object is nested inside ResolvedPromptState |
 | app/runtime/ResolvedPromptState.h | Backend bundle containing mode_and_context_sources wrapper plus existing other metadata/prompt strings; no ResolvedPromptState_ts alias. Frontend PromptMetadata header needs only mode and size_t value declarations |
-| app/project_trust_types.h | Existing trust enums/value structs separated from persistence/staging API; app/project_trust.h includes it |
-| app/runtime/TrustState.h | Existing trust bundle followed immediately by TrustState_ts alias |
 | app/runtime/SessionIdentity.h | Candidate observation followed immediately by SessionIdentity_ts alias, subject to section 7 approval |
-| app/frontend/AgentSelection.h/.cxx, Directories.h/.cxx, PromptMetadata.h/.cxx, ProjectTrust.h/.cxx, SessionIdentity.h/.cxx | Frontend snapshots/formatting and protected read implementations |
+| app/frontend/AgentSelection.h/.cxx, Directories.h/.cxx, PromptMetadata.h/.cxx, SessionIdentity.h/.cxx | Frontend snapshots/formatting and protected read implementations |
 
 **User decision: no per-domain `_ts.h` split.** For runtime-owned canonical structs, put `using Foo_ts = UnlockedData<Foo>;` immediately below the definition. Statistics now have an explicitly chosen cross-layer arrangement: reusable session::Stats stays in session/Stats.h, while runtime::SessionStats_ts lives in app/runtime/SessionStats.h. Do not move that alias back into the session layer or reopen the solved dependency issue. UnlockedData.h no longer includes FrontEnd.h; the earlier hypothetical circular-include rationale is withdrawn. The goal remains avoiding all of Session.h just to name a domain type, not mechanically splitting every value and alias.
 
@@ -521,7 +462,6 @@ struct FrontendDataIndices {
   DataListIndex directories;
   DataListIndex git_branch;
   DataListIndex mode_and_context_sources;
-  DataListIndex project_trust;
   DataListIndex session_identity;
   AVA_DEBUG_PRINT_MEMBERS_OPT_OUT
 };
@@ -572,7 +512,6 @@ app::frontend::AgentSelection agent_selection_; // proposed
 app::frontend::Directories directories_;       // proposed
 app::frontend::GitBranch git_branch_;           // user-directed observed string migration
 app::frontend::PromptMetadata prompt_metadata_;// proposed
-app::frontend::ProjectTrust project_trust_;     // proposed
 app::frontend::SessionIdentity session_identity_; // proposed, explicit decision
 ```
 
@@ -605,9 +544,9 @@ Frontend-local theme/binding/settings ownership can be corrected without new can
 Approval questions:
 
 1. Settled by user: AgentSelection contains a nonoptional actual selected definition, resolved explicitly or by default before composer input; frontend SelectedAgentMetadata is also nonoptional. Requested CLI intent remains backend configuration, not a snapshot field. Review any missing concrete default-name/configuration policy separately.
-2. Directories as workspace/current/additional writable inputs moved out of InvocationInputs; whole frontend copy versus only root/current paths?
+2. Settled by user: move workspace/current/additional writable paths into Directories, wrap it and copy the whole value; display root/current paths only for now. Approval is based on semantic cohesion versus mutation/copy/locking cost, not a rule to wrap all undisplayed fields.
 3. Settled by user: option 3, PromptModeAndContextSources_ts nested in ResolvedPromptState. Register the nested stable object and copy only mode/vector size to frontend; other prompt fields retain existing protection.
-4. Wrap existing TrustState and copy selected existing presentation fields, keeping protected resource paths uncopied?
+4. Settled by user: no UnlockedData wrapper or frontend projection for TrustState; preserve existing trust behavior/presentation paths.
 5. Add narrowly derived SessionIdentity observation maintained at actual store-install points, or request a different identity factoring?
 6. Settled by user: no per-domain _ts.h split; runtime-owned structs have adjacent aliases. Statistics specifically retain session::Stats/EntryCounts in session/Stats.h and runtime::SessionStats_ts in app/runtime/SessionStats.h, per c0b9b06e. Neutral index-only initialization remains a separate proposal for review; these placement decisions do not approve that binding API.
 7. Review core now with later catalog/resource/todo supplements, or complete every supplementary type proposal before any coding?
