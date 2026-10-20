@@ -35,7 +35,7 @@ User's distinction: on-demand modal content is obtained on frontend initiative, 
 
 ## Remaining review, not yet presented for decision
 
-Bounded foundation coding authorization. Address this separately, without reopening explicit decisions absent new evidence.
+No further abstract foundation-design approval is requested. The user permits inspection/verification, not speculative groundwork changes. Any proposed groundwork edit needs a concrete argument presented before editing. Domain-specific correctness questions remain assigned to their implementation slices.
 
 ## Decided: review remaining domain types at their implementation goals
 
@@ -53,4 +53,6 @@ Before implementation verify SessionStore's existing value copies, detached copi
 
 ## Authorization
 
-Review in progress. No new /05 implementation is authorized by this record. Previously requested standalone header extraction was a separate explicit coding task, not approval of this migration.
+User reports that the current code compiles, the whole suite passes, and the existing ModelSelection/SessionStats design and implementation have already been reviewed. They permit checking/verifying but require argumentation for any proposed groundwork changes. Treat those implementations as the working reference, not an unfinished foundation to redesign. Inspection at HEAD 244186f7 confirms the extracted headers, runtime SessionStats wrapper and existing typed canonical-object initialization are present; no necessary groundwork edit was established by this check. This is not a newly executed build/test result.
+
+No blanket groundwork coding authorization is inferred. The following foundation step may complete as verification-only; it must not manufacture changes to satisfy its historical coding title. Previously requested standalone header extraction was a separate explicit coding task. Approved domain type decisions remain recorded above; future work follows those decisions and the scoped plan, with any additional prerequisite change explained specifically.
