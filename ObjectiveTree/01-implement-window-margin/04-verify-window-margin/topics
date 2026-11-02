@@ -2,3 +2,4 @@
 2. Design a stateful `ava::tui::terminal::InputDecoder` owning incremental input, timeouts and decoded events; use it to restore mouse-wheel scrolling in `linux08-pad.cpp` - needs discussion
 3. Choose the ncurses input/wakeup architecture for responsive keyboard, mouse, and asynchronous application updates; proposed: one ncurses-owning TUI thread waiting on terminal input and an application notification descriptor, with `noecho`; decide whether ncurses decoding delays are acceptable - needs discussion
 4. Finalize `utils::threading::EventLoop` API contracts for notification, readiness reporting, errors, and registration lifetime - initial header review complete; decisions pending
+5. Refactor `TuiFrontEnd::run()` into explicit, encapsulated objects; consider an intermediate TUI-thread-owned state object before extracting smaller owners - inspect current structure and propose the first transformation
