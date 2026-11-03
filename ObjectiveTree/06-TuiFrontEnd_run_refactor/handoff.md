@@ -4,6 +4,22 @@
 
 This objective was requested by an experienced C++ maintainer who wants understandable object-oriented code, not a cosmetic decomposition of a giant function. No conversation context is required to execute this plan. The numbered tree is the execution order; this document supplies rationale and preliminary evidence, not a competing task list.
 
+### Artifact paths and handoffs
+
+Paths such as /06/01/inventory.md use plan refpaths, not OS-root paths: resolve /06/01 to its actual node directory beneath $PLANROOT/ObjectiveTree, then append inventory.md. Every subgoal description explicitly names its relevant input artifacts and output/update destinations; nested goals do not inherit an implicit reading list. Planned artifacts do not exist until their producing goal writes them; a missing prerequisite is a handoff gap to resolve, not permission to guess its decisions.
+
+| Artifact | Producer and consumers |
+| --- | --- |
+| /06/handoff.md | Planner-supplied requirements and preliminary evidence; input to every subgoal |
+| /06/01/inventory.md | Written by /06/01; input to /06/02 onward, including nested coder goals |
+| /06/02/architecture.md | Written by /06/02; input to /06/03 onward, including nested coder goals; reconcile explicitly if later decisions change it |
+| /06/03/migration-ledger.md | Created by /06/03; read and maintained throughout later implementation/integration, with ordered entries naming each producing goal and superseded contracts; input to later analyses/decisions and final review |
+| /06/06/scheduling-analysis.md | Written by /06/06; input to /06/07–11 |
+| /06/07/event-contracts.md | Written by /06/07; input to /06/08–11 |
+| /06/11/refactor-handoff.md | Written by final review; input to any subsequent runtime-validation or maintenance objective |
+
+Index each artifact in the contents file of its containing node. The shared migration ledger records non-code outputs from coder steps (actual APIs, invariants, lifetime/producer contracts, stubs and build evidence) so subsequent goals can consume them without conversation history. Keep entries attributable and current; do not hide approved architectural changes solely in the ledger. If additional .md outputs become necessary, update the producing and all consuming goal descriptions to name their exact plan-relative paths.
+
 The present TUI thread body is an implicit object represented by a large stack frame, reference aliases, capturing lambdas, state bags with public members, and free functions receiving mutable references and callbacks. Group correlated persistent state into clearly named objects with private members and operations maintaining invariants. Objects can still live on the stack. Ownership should follow both actual usage correlations and domain meaning; Mermaid state must not be grouped with unrelated state merely because both access the screen snapshot.
 
 Replace capturing orchestration lambdas with member functions of the appropriate state owner. Remove trivial forwarding lambdas instead of adding forwarding methods everywhere. Replace stateful free-function orchestration with owner operations. Independent computations/value transformations (the user's example is sin(x)) may remain free functions, including anonymous-namespace helpers; do not make them static class members merely to attach them to an unrelated class. Analyze even lambdas declared inside event branches, not just function-scope ones. Genuine asynchronous callback boundaries need explicit target/lifetime contracts rather than indiscriminate reference captures.
